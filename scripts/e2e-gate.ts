@@ -544,6 +544,143 @@ async function main(): Promise<void> {
       results.push(
         assert(me3Body.projects_count === 1, 'GET /v1/me (key A) projects_count net 1 after CRUD'),
       );
+
+      // 11. T-020 /v1/memories CRUD + RLS cross-check
+      const t020ProjAlias = `e2e-t020-proj-${stamp}`;
+      const t020Content = `e2e-t020-${stamp}`;
+
+      // Create a project (memories require projectId FK)
+      const mpRes = await fetch(`${baseUrl}/v1/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${res.key}` },
+        body: JSON.stringify({ name: 'T-020 Project', cwdAlias: t020ProjAlias }),
+      });
+      results.push(assert(mpRes.status === 201, 'POST /v1/projects (T-020 seed) status 201'));
+      const mpBody = await readJson<Record<string, unknown>>(mpRes);
+      const t020ProjectId = mpBody.id;
+
+      const t020Embedding = Array.from({ length: 1536 }, (_, i) => i * 1e-4);
+
+      // POST /v1/memories — create
+      const cmRes = await fetch(`${baseUrl}/v1/memories`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${res.key}` },
+        body: JSON.stringify({
+          projectId: t020ProjectId,
+          content: t020Content,
+          source: 'agent',
+          tags: ['e2e', 'gate'],
+          embedding: t020Embedding,
+        }),
+      });
+      results.push(assert(cmRes.status === 201, 'POST /v1/memories status 201'));
+      const cmBody = await readJson<Record<string, unknown>>(cmRes);
+      const t020MemoryId = cmBody.id;
+      results.push(
+        assert(
+          typeof t020MemoryId === 'string' && t020MemoryId.length > 0,
+          'POST /v1/memories response.id present',
+        ),
+      );
+      results.push(
+        assert(cmBody.content === t020Content, 'POST /v1/memories response.content matches'),
+      );
+      results.push(
+        assert(cmBody.projectId === t020ProjectId, 'POST /v1/memories response.projectId matches'),
+      );
+      results.push(
+        assert(cmBody.source === 'agent', 'POST /v1/memories response.source === "agent"'),
+      );
+
+      // GET /v1/memories — list all
+      const lmRes = await fetch(`${baseUrl}/v1/memories`, {
+        headers: { authorization: `Bearer ${res.key}` },
+      });
+      results.push(assert(lmRes.status === 200, 'GET /v1/memories status 200'));
+      const lmBody = await readJson<unknown[]>(lmRes);
+      results.push(assert(Array.isArray(lmBody), 'GET /v1/memories returns array'));
+      results.push(assert(lmBody.length >= 1, 'GET /v1/memories non-empty'));
+
+      // GET /v1/memories?projectId= — filter
+      const fmRes = await fetch(`${baseUrl}/v1/memories?projectId=${t020ProjectId}`, {
+        headers: { authorization: `Bearer ${res.key}` },
+      });
+      results.push(assert(fmRes.status === 200, 'GET /v1/memories?projectId= status 200'));
+      const fmBody = await readJson<unknown[]>(fmRes);
+      results.push(assert(Array.isArray(fmBody), 'GET /v1/memories?projectId= returns array'));
+      results.push(assert(fmBody.length === 1, 'GET /v1/memories?projectId= length === 1'));
+
+      // GET /v1/memories/:id — detail
+      const gmRes = await fetch(`${baseUrl}/v1/memories/${t020MemoryId}`, {
+        headers: { authorization: `Bearer ${res.key}` },
+      });
+      results.push(assert(gmRes.status === 200, 'GET /v1/memories/:id status 200'));
+      const gmBody = await readJson<Record<string, unknown>>(gmRes);
+      results.push(assert(gmBody.id === t020MemoryId, 'GET /v1/memories/:id response.id matches'));
+      results.push(
+        assert(gmBody.content === t020Content, 'GET /v1/memories/:id response.content matches'),
+      );
+      results.push(
+        assert(
+          gmBody.projectId === t020ProjectId,
+          'GET /v1/memories/:id response.projectId matches',
+        ),
+      );
+
+      // PATCH /v1/memories/:id — update content
+      const newContent = `${t020Content}-patched`;
+      const pmRes = await fetch(`${baseUrl}/v1/memories/${t020MemoryId}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${res.key}` },
+        body: JSON.stringify({ content: newContent }),
+      });
+      results.push(assert(pmRes.status === 200, 'PATCH /v1/memories/:id status 200'));
+      const pmBody = await readJson<Record<string, unknown>>(pmRes);
+      results.push(assert(pmBody.content === newContent, 'PATCH /v1/memories/:id content updated'));
+
+      // User B → GET A memory → 404 (RLS)
+      const xmRes = await fetch(`${baseUrl}/v1/memories/${t020MemoryId}`, {
+        headers: { authorization: `Bearer ${resB.key}` },
+      });
+      results.push(assert(xmRes.status === 404, 'GET /v1/memories/:id user B → 404 on A memory'));
+
+      // User B → GET /v1/memories?projectId=A → empty
+      const xfRes = await fetch(`${baseUrl}/v1/memories?projectId=${t020ProjectId}`, {
+        headers: { authorization: `Bearer ${resB.key}` },
+      });
+      results.push(
+        assert(xfRes.status === 200, 'GET /v1/memories?projectId= (user B, A project) status 200'),
+      );
+      const xfBody = await readJson<unknown[]>(xfRes);
+      results.push(
+        assert(
+          Array.isArray(xfBody) && xfBody.length === 0,
+          'GET /v1/memories?projectId= (user B, A project) empty',
+        ),
+      );
+
+      // DELETE /v1/memories/:id
+      const dmRes = await fetch(`${baseUrl}/v1/memories/${t020MemoryId}`, {
+        method: 'DELETE',
+        headers: { authorization: `Bearer ${res.key}` },
+      });
+      results.push(assert(dmRes.status === 204, 'DELETE /v1/memories/:id status 204'));
+
+      // GET after delete → 404
+      const gdRes = await fetch(`${baseUrl}/v1/memories/${t020MemoryId}`, {
+        headers: { authorization: `Bearer ${res.key}` },
+      });
+      results.push(assert(gdRes.status === 404, 'GET /v1/memories/:id after delete → 404'));
+
+      // /v1/me memories_count net 1 (seed + T-020 create - T-020 delete = 1)
+      const me4 = await fetch(`${baseUrl}/v1/me`, {
+        headers: { authorization: `Bearer ${res.key}` },
+      });
+      const me4Body = await readJson<Record<string, unknown>>(me4);
+      results.push(assert(me4.status === 200, 'GET /v1/me (key A) after memory CRUD status 200'));
+      results.push(
+        assert(me4Body.memories_count === 1, 'GET /v1/me (key A) memories_count net 1 after CRUD'),
+      );
     }
   } catch (err) {
     console.error('[gate] fatal:', err);
