@@ -1,0 +1,10 @@
+node_modules/
+.turbo/
+dist/
+.next/
+.env
+.env.*
+*.log
+pnpm-debug.log*
+coverage/
+.DS_Store
