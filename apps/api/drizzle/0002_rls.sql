@@ -22,6 +22,13 @@ BEGIN
 END
 $$;
 
+-- 1a. Service role needs table privileges — BYPASSRLS only skips the
+--     row-filter, it doesn't grant DML. Anything that goes through the
+--     service connection must be allowed at the ACL level too.
+GRANT USAGE ON SCHEMA public TO bright_service;
+GRANT SELECT, INSERT, UPDATE, DELETE ON
+  "users", "api_keys", "projects", "memories" TO bright_service;
+
 -- 2. Enable + force RLS on every data table.
 ALTER TABLE "users"    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "users"    FORCE  ROW LEVEL SECURITY;
