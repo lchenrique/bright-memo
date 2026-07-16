@@ -3,21 +3,26 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/server.js",
+  "types": "./dist/server.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
     },
     "./db": {
       "types": "./src/db/index.ts",
       "import": "./src/db/index.ts"
+    },
+    "./config/env": {
+      "types": "./src/config/env.d.ts",
+      "import": "./src/config/env.js"
     }
   },
   "scripts": {
-    "build": "tsc --noEmit",
-    "dev": "tsc --noEmit --watch",
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
     "lint": "eslint .",
     "test": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
@@ -27,9 +32,16 @@
   },
   "dependencies": {
     "@bright-memo/shared": "workspace:*",
+    "@fastify/cors": "^11.1.0",
+    "@node-rs/argon2": "^2.0.2",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
-    "postgres": "^3.4.9"
+    "fastify": "^5.2.1",
+    "fastify-plugin": "^5.0.1",
+    "pino": "^9.7.0",
+    "pino-pretty": "^13.0.0",
+    "postgres": "^3.4.9",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",

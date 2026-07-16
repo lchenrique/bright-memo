@@ -11,3 +11,6 @@ coverage/
 .DS_Store
 .dev-key
 *.local
+.server.err
+.server.log
+.server.out
