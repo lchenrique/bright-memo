@@ -5,8 +5,9 @@ import { userSchema } from './user.js';
 
 export const createKeyRequestSchema = z
   .object({
-    name: z.string().trim().min(1).max(100),
-    scopes: z.array(z.enum(API_KEY_SCOPES)).min(1),
+    email: z.string().trim().email().max(255),
+    name: z.string().trim().min(1).max(100).optional(),
+    scopes: z.array(z.enum(API_KEY_SCOPES)).default([]),
   })
   .strict();
 

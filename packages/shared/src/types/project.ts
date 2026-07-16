@@ -1,1 +1,1 @@
-export type { Project, ProjectStatus } from '../schemas/project.js';
+export type { Project } from '../schemas/project.js';

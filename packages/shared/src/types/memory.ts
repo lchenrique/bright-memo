@@ -1,8 +1,1 @@
-export type {
-  Memory,
-  MemoryImportance,
-  MemoryScope,
-  MemorySource,
-  MemoryType,
-  MemoryWithProject,
-} from '../schemas/memory.js';
+export type { Memory, MemorySource } from '../schemas/memory.js';

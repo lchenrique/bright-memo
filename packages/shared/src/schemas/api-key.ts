@@ -10,7 +10,7 @@ export const apiKeySchema = z
     userId: z.string().uuid(),
     name: z.string().min(1).max(100),
     prefix: z.string().min(1).max(32),
-    scopes: z.array(apiKeyScopeSchema).min(1),
+    scopes: z.array(apiKeyScopeSchema).default([]),
     createdAt: z.string().datetime({ offset: true }),
     lastUsedAt: z.string().datetime({ offset: true }).nullable(),
     revokedAt: z.string().datetime({ offset: true }).nullable(),
