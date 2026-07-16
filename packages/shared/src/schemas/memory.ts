@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const memorySourceSchema = z.enum(['manual', 'agent', 'commit', 'file']);
+export const memorySourceSchema = z.enum(['manual', 'agent', 'commit', 'file', 'cli', 'cli-save']);
 export const memoryMetadataSchema = z.record(z.string(), z.unknown());
 
 export const memorySchema = z
