@@ -19,7 +19,11 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "format": "prettier --write .",
-    "prepare": "husky"
+    "prepare": "husky",
+    "db:up": "docker compose -f docker/docker-compose.yml up -d",
+    "db:down": "docker compose -f docker/docker-compose.yml down",
+    "db:logs": "docker compose -f docker/docker-compose.yml logs -f db",
+    "db:psql": "docker compose -f docker/docker-compose.yml exec db psql -U bright -d bright_memo"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.1.0",

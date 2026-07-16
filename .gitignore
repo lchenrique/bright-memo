@@ -4,7 +4,10 @@ dist/
 .next/
 .env
 .env.*
+!.env.example
 *.log
 pnpm-debug.log*
 coverage/
 .DS_Store
+.dev-key
+*.local
