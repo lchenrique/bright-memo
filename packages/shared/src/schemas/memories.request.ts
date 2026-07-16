@@ -9,7 +9,7 @@ export const createMemoryRequestSchema = z
     source: memorySourceSchema.default('agent'),
     tags: z.array(z.string().trim().min(1).max(50)).max(50).default([]),
     metadata: memoryMetadataSchema.default({}),
-    embedding: z.array(z.number()).length(1536),
+    embedding: z.array(z.number()).length(1536).optional(),
   })
   .strict();
 

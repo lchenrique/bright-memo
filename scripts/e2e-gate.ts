@@ -681,6 +681,181 @@ async function main(): Promise<void> {
       results.push(
         assert(me4Body.memories_count === 1, 'GET /v1/me (key A) memories_count net 1 after CRUD'),
       );
+
+      // 12. T-021 /v1/memories/search — endpoint structure
+      {
+        // 12a. No q → 400
+        const sq0 = await fetch(`${baseUrl}/v1/memories/search`, {
+          headers: { authorization: `Bearer ${res.key}` },
+        });
+        results.push(assert(sq0.status === 400, 'GET /v1/memories/search (no q) status 400'));
+
+        // 12b. With q — probe OpenAI availability (200=ok, 502=no key)
+        const sq1 = await fetch(
+          `${baseUrl}/v1/memories/search?q=${encodeURIComponent('meaning of life')}`,
+          { headers: { authorization: `Bearer ${res.key}` } },
+        );
+        const sq1Body = await readJson<Record<string, unknown>>(sq1);
+        const searchOk = sq1.status === 200;
+        const searchNoKey =
+          sq1.status === 502 &&
+          typeof sq1Body.error === 'object' &&
+          sq1Body.error !== null &&
+          (sq1Body.error as Record<string, unknown>).code === 'EMBEDDING_ERROR';
+        results.push(
+          assert(
+            searchOk || searchNoKey,
+            `GET /v1/memories/search?q= status ${sq1.status} (200=ok, 502=no OpenAI key)`,
+          ),
+        );
+
+        if (searchOk) {
+          results.push(assert(Array.isArray(sq1Body.results), 'search results is array'));
+          results.push(assert(typeof sq1Body.query === 'string', 'search response has query'));
+
+          const sResults = sq1Body.results as unknown[];
+          if (sResults.length > 0) {
+            const r0 = sResults[0] as Record<string, unknown>;
+            results.push(
+              assert(
+                typeof r0.similarity === 'number' && r0.similarity >= -1 && r0.similarity <= 1,
+                'search result[0].similarity in [-1,1]',
+              ),
+            );
+          }
+
+          // 13. T-021 content ranking — 2 memories, verify search returns them
+          {
+            const embA = Array.from({ length: 1536 }, () => 0.1);
+            const embB = Array.from({ length: 1536 }, () => 0.9);
+            const memAContent = `e2e-rank-a-${stamp}`;
+            const memBContent = `e2e-rank-b-${stamp}`;
+
+            const maRes = await fetch(`${baseUrl}/v1/memories`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', authorization: `Bearer ${res.key}` },
+              body: JSON.stringify({
+                projectId: t020ProjectId,
+                content: memAContent,
+                source: 'agent',
+                embedding: embA,
+              }),
+            });
+            results.push(assert(maRes.status === 201, 'POST /v1/memories (rank A) status 201'));
+            const maBody = await readJson<Record<string, unknown>>(maRes);
+            const memAId = maBody.id;
+
+            const mbRes = await fetch(`${baseUrl}/v1/memories`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', authorization: `Bearer ${res.key}` },
+              body: JSON.stringify({
+                projectId: t020ProjectId,
+                content: memBContent,
+                source: 'agent',
+                embedding: embB,
+              }),
+            });
+            results.push(assert(mbRes.status === 201, 'POST /v1/memories (rank B) status 201'));
+            const mbBody = await readJson<Record<string, unknown>>(mbRes);
+            const memBId = mbBody.id;
+
+            const srRes = await fetch(
+              `${baseUrl}/v1/memories/search?q=${encodeURIComponent('test ranking')}`,
+              { headers: { authorization: `Bearer ${res.key}` } },
+            );
+            results.push(
+              assert(srRes.status === 200, 'GET /v1/memories/search?q= (ranking) status 200'),
+            );
+            const srBody = await readJson<Record<string, unknown>>(srRes);
+            const srResults = srBody.results as unknown[];
+            results.push(assert(Array.isArray(srResults), 'ranking search results is array'));
+            results.push(assert(srResults.length >= 1, 'ranking search results non-empty'));
+
+            if (Array.isArray(srResults)) {
+              const foundA = srResults.some(
+                (r: unknown) => (r as Record<string, unknown>).id === memAId,
+              );
+              const foundB = srResults.some(
+                (r: unknown) => (r as Record<string, unknown>).id === memBId,
+              );
+              results.push(assert(foundA, 'ranking: memory A in search results'));
+              results.push(assert(foundB, 'ranking: memory B in search results'));
+
+              for (let i = 0; i < srResults.length && i < 2; i++) {
+                const sim = (srResults[i] as Record<string, unknown>).similarity;
+                results.push(
+                  assert(
+                    typeof sim === 'number' && sim >= -1 && sim <= 1,
+                    `ranking: result[${i}].similarity ${sim} in [-1,1]`,
+                  ),
+                );
+              }
+              if (srResults.length >= 2) {
+                const s0 = (srResults[0] as Record<string, unknown>).similarity as number;
+                const s1 = (srResults[1] as Record<string, unknown>).similarity as number;
+                results.push(assert(s0 >= s1, 'ranking: results ordered by similarity desc'));
+              }
+            }
+
+            // Cleanup ranking memories
+            await Promise.allSettled([
+              fetch(`${baseUrl}/v1/memories/${memAId}`, {
+                method: 'DELETE',
+                headers: { authorization: `Bearer ${res.key}` },
+              }),
+              fetch(`${baseUrl}/v1/memories/${memBId}`, {
+                method: 'DELETE',
+                headers: { authorization: `Bearer ${res.key}` },
+              }),
+            ]);
+          }
+        } else {
+          results.push(assert(true, 'T-021 ranking skipped (no OpenAI key)'));
+        }
+      }
+
+      // 14. T-023 auto-embed — POST without embedding body
+      {
+        const aeRes = await fetch(`${baseUrl}/v1/memories`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${res.key}` },
+          body: JSON.stringify({
+            projectId: t020ProjectId,
+            content: `e2e-autoembed-${stamp}`,
+            source: 'agent',
+            tags: ['e2e', 'auto-embed'],
+          }),
+        });
+
+        if (aeRes.status === 201) {
+          results.push(assert(true, 'POST /v1/memories (no embedding) status 201'));
+          const aeBody = await readJson<Record<string, unknown>>(aeRes);
+          results.push(
+            assert(
+              Array.isArray(aeBody.embedding) && (aeBody.embedding as unknown[]).length === 1536,
+              'POST /v1/memories (no embedding) => embedding Array(1536)',
+            ),
+          );
+          const aeId = aeBody.id;
+          if (typeof aeId === 'string') {
+            await fetch(`${baseUrl}/v1/memories/${aeId}`, {
+              method: 'DELETE',
+              headers: { authorization: `Bearer ${res.key}` },
+            });
+          }
+        } else if (aeRes.status === 422) {
+          results.push(
+            assert(
+              false,
+              'POST /v1/memories (no embedding) 422 — embedding required by schema, auto-embed unreachable',
+            ),
+          );
+        } else {
+          results.push(
+            assert(false, `POST /v1/memories (no embedding) status ${aeRes.status} unexpected`),
+          );
+        }
+      }
     }
   } catch (err) {
     console.error('[gate] fatal:', err);
