@@ -416,6 +416,134 @@ async function main(): Promise<void> {
       );
       results.push(assert(meBBody.projects_count === 1, 'GET /v1/me (key B) projects_count === 1'));
       results.push(assert(meBBody.memories_count === 1, 'GET /v1/me (key B) memories_count === 1'));
+
+      // 10. T-019 /v1/projects CRUD + RLS cross-check
+      const t019Alias = `e2e-t019-${stamp}`;
+      const t019Name = 'T-019 Test Project';
+
+      // POST create
+      const createRes = await fetch(`${baseUrl}/v1/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${res.key}` },
+        body: JSON.stringify({ name: t019Name, cwdAlias: t019Alias }),
+      });
+      results.push(assert(createRes.status === 201, 'POST /v1/projects status 201'));
+      const createBody = await readJson<Record<string, unknown>>(createRes);
+      const t019ProjectId = createBody.id;
+      results.push(
+        assert(
+          typeof t019ProjectId === 'string' && t019ProjectId.length > 0,
+          'POST /v1/projects response.id present',
+        ),
+      );
+      results.push(assert(createBody.name === t019Name, 'POST /v1/projects response.name matches'));
+      results.push(
+        assert(createBody.cwdAlias === t019Alias, 'POST /v1/projects response.cwdAlias matches'),
+      );
+      results.push(
+        assert(createBody.userId === userAId, 'POST /v1/projects response.userId matches'),
+      );
+
+      // GET /v1/projects list
+      const listRes = await fetch(`${baseUrl}/v1/projects`, {
+        headers: { authorization: `Bearer ${res.key}` },
+      });
+      results.push(assert(listRes.status === 200, 'GET /v1/projects status 200'));
+      const listBody = await readJson<unknown[]>(listRes);
+      results.push(assert(Array.isArray(listBody), 'GET /v1/projects returns array'));
+      results.push(assert(listBody.length >= 1, 'GET /v1/projects array non-empty'));
+
+      // GET /v1/projects/:id detail
+      const getRes = await fetch(`${baseUrl}/v1/projects/${t019ProjectId}`, {
+        headers: { authorization: `Bearer ${res.key}` },
+      });
+      results.push(assert(getRes.status === 200, 'GET /v1/projects/:id status 200'));
+      const getBody = await readJson<Record<string, unknown>>(getRes);
+      results.push(
+        assert(getBody.id === t019ProjectId, 'GET /v1/projects/:id response.id matches'),
+      );
+      results.push(
+        assert(getBody.cwdAlias === t019Alias, 'GET /v1/projects/:id response.cwdAlias matches'),
+      );
+
+      // GET /v1/projects/:id/context shape check
+      const ctxRes = await fetch(`${baseUrl}/v1/projects/${t019ProjectId}/context`, {
+        headers: { authorization: `Bearer ${res.key}` },
+      });
+      results.push(assert(ctxRes.status === 200, 'GET /v1/projects/:id/context status 200'));
+      const ctxBody = await readJson<Record<string, unknown>>(ctxRes);
+      results.push(
+        assert(
+          typeof ctxBody.project === 'object' &&
+            ctxBody.project !== null &&
+            Array.isArray(ctxBody.memories),
+          'GET /v1/projects/:id/context shape {project, memories[]}',
+        ),
+      );
+
+      // PATCH /v1/projects/:id update cwdAlias
+      const newAlias = `${t019Alias}-patched`;
+      const patchRes = await fetch(`${baseUrl}/v1/projects/${t019ProjectId}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${res.key}` },
+        body: JSON.stringify({ cwdAlias: newAlias }),
+      });
+      results.push(assert(patchRes.status === 200, 'PATCH /v1/projects/:id status 200'));
+      const patchBody = await readJson<Record<string, unknown>>(patchRes);
+      results.push(
+        assert(patchBody.cwdAlias === newAlias, 'PATCH /v1/projects/:id cwdAlias reflected'),
+      );
+      results.push(assert(patchBody.name === t019Name, 'PATCH /v1/projects/:id name unchanged'));
+
+      // Duplicate cwdAlias → 409
+      const dupRes = await fetch(`${baseUrl}/v1/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${res.key}` },
+        body: JSON.stringify({ name: 'Duplicate', cwdAlias: newAlias }),
+      });
+      results.push(
+        assert(dupRes.status === 409, 'POST /v1/projects duplicate cwdAlias status 409'),
+      );
+      const dupBody = await readJson<Record<string, unknown>>(dupRes);
+      results.push(
+        assert(
+          typeof dupBody.error === 'object' &&
+            dupBody.error !== null &&
+            (dupBody.error as { code?: unknown }).code === 'CONFLICT',
+          'POST /v1/projects duplicate cwdAlias error.code === "CONFLICT"',
+        ),
+      );
+
+      // User B tries to GET user A's project → 404 (RLS isolation)
+      const crossRes = await fetch(`${baseUrl}/v1/projects/${t019ProjectId}`, {
+        headers: { authorization: `Bearer ${resB.key}` },
+      });
+      results.push(
+        assert(crossRes.status === 404, 'GET /v1/projects/:id user B → 404 on A project'),
+      );
+
+      // DELETE /v1/projects/:id
+      const delRes = await fetch(`${baseUrl}/v1/projects/${t019ProjectId}`, {
+        method: 'DELETE',
+        headers: { authorization: `Bearer ${res.key}` },
+      });
+      results.push(assert(delRes.status === 204, 'DELETE /v1/projects/:id status 204'));
+
+      // GET after delete → 404
+      const getDelRes = await fetch(`${baseUrl}/v1/projects/${t019ProjectId}`, {
+        headers: { authorization: `Bearer ${res.key}` },
+      });
+      results.push(assert(getDelRes.status === 404, 'GET /v1/projects/:id after delete → 404'));
+
+      // /v1/me projects_count still 1 (create+delete net zero on seed)
+      const me3 = await fetch(`${baseUrl}/v1/me`, {
+        headers: { authorization: `Bearer ${res.key}` },
+      });
+      const me3Body = await readJson<Record<string, unknown>>(me3);
+      results.push(assert(me3.status === 200, 'GET /v1/me (key A) after CRUD status 200'));
+      results.push(
+        assert(me3Body.projects_count === 1, 'GET /v1/me (key A) projects_count net 1 after CRUD'),
+      );
     }
   } catch (err) {
     console.error('[gate] fatal:', err);

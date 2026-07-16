@@ -19,6 +19,7 @@ import errorHandlerPlugin from './plugins/error-handler.js';
 import healthRoutes from './routes/health.js';
 import keysRoutes from './routes/auth/keys.js';
 import meRoutes from './routes/auth/me.js';
+import projectsRoutes from './routes/projects.js';
 
 async function buildServer() {
   const env = getEnv();
@@ -56,6 +57,7 @@ async function buildServer() {
   await app.register(healthRoutes);
   await app.register(keysRoutes);
   await app.register(meRoutes);
+  await app.register(projectsRoutes);
 
   return app;
 }
