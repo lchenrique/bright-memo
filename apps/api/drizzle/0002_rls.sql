@@ -14,13 +14,25 @@
 
 -- 1. Service role: used by the API bootstrap and the /auth/keys endpoints.
 --    BYPASSRLS means it sees every row regardless of policies.
+--    App role is created without BYPASSRLS so the policies below apply to
+--    every req.db query. The standalone ALTER below is the idempotent
+--    guarantee that bright_app can never end up with BYPASSRLS even if it
+--    was created/edited out-of-band between migrations.
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'bright_service') THEN
     CREATE ROLE bright_service BYPASSRLS LOGIN PASSWORD 'changeme';
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'bright_app') THEN
+    CREATE ROLE bright_app LOGIN PASSWORD 'changeme';
+  END IF;
 END
 $$;
+
+-- 1a-bis. Belt-and-suspenders: explicitly enforce NOBYPASSRLS on bright_app.
+--         Idempotent — Postgres' ALTER ROLE is a no-op when the attribute is
+--         already set as requested. Safe to run on every migration.
+ALTER ROLE bright_app NOBYPASSRLS;
 
 -- 1a. Service role needs table privileges — BYPASSRLS only skips the
 --     row-filter, it doesn't grant DML. Anything that goes through the
@@ -28,6 +40,12 @@ $$;
 GRANT USAGE ON SCHEMA public TO bright_service;
 GRANT SELECT, INSERT, UPDATE, DELETE ON
   "users", "api_keys", "projects", "memories" TO bright_service;
+
+-- 1b. App role runs normal request queries. It has DML privileges but no
+--     BYPASSRLS, so policies below are enforced for every req.db query.
+GRANT USAGE ON SCHEMA public TO bright_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON
+  "users", "api_keys", "projects", "memories" TO bright_app;
 
 -- 2. Enable + force RLS on every data table.
 ALTER TABLE "users"    ENABLE ROW LEVEL SECURITY;

@@ -28,6 +28,14 @@ const envSchema = z.object({
     ),
 
   DATABASE_URL: z.string().url().default('postgres://bright:changeme@localhost:5432/bright_memo'),
+  APP_DATABASE_URL: z
+    .string()
+    .url()
+    .default('postgres://bright_app:changeme@localhost:5432/bright_memo'),
+  SERVICE_DATABASE_URL: z
+    .string()
+    .url()
+    .default('postgres://bright_service:changeme@localhost:5432/bright_memo'),
 
   OPENAI_API_KEY: z.string().min(1).default('sk-replace-me'),
 

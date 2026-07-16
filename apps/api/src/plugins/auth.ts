@@ -14,7 +14,7 @@ import { ERROR_CODES, type ApiKeyScope } from '@bright-memo/shared';
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 
-import { db } from '../db/client.js';
+import { serviceDb } from '../db/client.js';
 import { touchKey, verifyKey } from '../services/api-keys.js';
 
 declare module 'fastify' {
@@ -87,11 +87,9 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
       return reply;
     }
 
-    // The auth lookup uses the bright_service role (BYPASSRLS) so a key
-    // resolves regardless of which user owns it. We connect to the
-    // service database via the same Drizzle instance — policies allow
-    // SELECTs on api_keys + users for the service role.
-    const result = await verifyKey(token, db).catch((err) => {
+    // Auth lookup uses service role (BYPASSRLS). Request handlers use the
+    // app role via req.db, so authenticated data reads still go through RLS.
+    const result = await verifyKey(token, serviceDb).catch((err) => {
       req.log.error({ err }, 'auth: verifyKey threw');
       return null;
     });
@@ -102,7 +100,7 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
     }
 
     // Refresh last_used_at lazily. Don't block the request on it.
-    void touchKey(result.apiKey.id, db);
+    void touchKey(result.apiKey.id, serviceDb);
 
     req.user = result.user;
     req.apiKey = { id: result.apiKey.id, prefix: result.apiKey.prefix, scopes: [] };

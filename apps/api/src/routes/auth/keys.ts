@@ -17,7 +17,7 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 
-import { db } from '../../db/client.js';
+import { serviceDb } from '../../db/client.js';
 import { users } from '../../db/schema/index.js';
 import { createKey, verifyKey } from '../../services/api-keys.js';
 import { getEnv } from '../../config/env.js';
@@ -66,7 +66,7 @@ async function resolveCaller(
   if (typeof auth === 'string' && auth.startsWith('Bearer ')) {
     const token = auth.slice('Bearer '.length).trim();
     if (!token) return null;
-    const result = await verifyKey(token, db);
+    const result = await verifyKey(token, serviceDb);
     if (!result) return null;
     return { kind: 'auth', userId: result.user.id };
   }
@@ -104,7 +104,11 @@ const keysRoutes: FastifyPluginAsync = async (fastify) => {
     let userCreatedAt: Date;
 
     if (caller.kind === 'auth') {
-      const existing = await db.select().from(users).where(eq(users.id, caller.userId)).limit(1);
+      const existing = await serviceDb
+        .select()
+        .from(users)
+        .where(eq(users.id, caller.userId))
+        .limit(1);
       const row = existing[0];
       if (!row) {
         return reply.status(404).send({
@@ -130,7 +134,11 @@ const keysRoutes: FastifyPluginAsync = async (fastify) => {
       userCreatedAt = row.createdAt;
     } else {
       // Bootstrap path — upsert user by email.
-      const existing = await db.select().from(users).where(eq(users.email, body.email)).limit(1);
+      const existing = await serviceDb
+        .select()
+        .from(users)
+        .where(eq(users.email, body.email))
+        .limit(1);
       const found = existing[0];
       if (found) {
         userId = found.id;
@@ -138,7 +146,7 @@ const keysRoutes: FastifyPluginAsync = async (fastify) => {
         userName = found.name;
         userCreatedAt = found.createdAt;
       } else {
-        const inserted = await db
+        const inserted = await serviceDb
           .insert(users)
           .values({ email: body.email, name: body.name ?? null })
           .returning();
@@ -160,7 +168,7 @@ const keysRoutes: FastifyPluginAsync = async (fastify) => {
       }
     }
 
-    const key = await createKey(userId, body.name ?? null, body.scopes ?? [], db);
+    const key = await createKey(userId, body.name ?? null, body.scopes ?? [], serviceDb);
 
     const body_: SuccessBody = {
       key: key.plaintext,

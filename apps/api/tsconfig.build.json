@@ -4,7 +4,10 @@
     "noEmit": false,
     "declaration": true,
     "declarationMap": false,
-    "sourceMap": false
+    "sourceMap": false,
+    "rootDir": "./src",
+    "baseUrl": "./",
+    "paths": {}
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "drizzle", "**/*.test.ts"]
