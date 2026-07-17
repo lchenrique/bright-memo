@@ -9,9 +9,7 @@ RUN npm ci --include=dev
 # Stage 2: Build
 FROM node:22-alpine AS builder
 WORKDIR /app
-# Copy everything from deps (includes apps/api/node_modules, packages/shared/node_modules)
 COPY --from=deps /app ./
-# Then overwrite source with fresh copy
 COPY . .
 RUN npm run build --workspace=@bright-memo/shared
 RUN npm run build --workspace=@bright-memo/api
@@ -29,9 +27,6 @@ COPY --from=builder /app/packages/shared ./packages/shared
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=builder /app/packages/shared/node_modules ./packages/shared/node_modules
-
-# Remove devDependencies after build
-RUN npm prune --omit=dev
 
 WORKDIR /app/apps/api
 
