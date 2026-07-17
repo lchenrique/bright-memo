@@ -1,53 +1,19 @@
 ﻿# Bright Memo v2 — Dev Quickstart
 
-Setup local de desenvolvimento, estado atual do projeto, próximos passos.
+Guia de setup local, comandos e estado pós v0.1.0.
 
-> Documento de referência rápida. Para detalhes, ver `README.md` e arquivos em `apps/*`.
+> Documento vivo. Para arquitetura/decisões, ver `README.md` + mensagens de commit (conventional).
 
-## Setup Inicial
+## TL;DR
 
 ```bash
-cd "D:\projetos pessoais\bright-memo"
-
-# 1. Dependências
 pnpm install
-
-# 2. Subir Postgres + pgvector
 docker compose -f docker/docker-compose.yml up -d
-docker compose -f docker/docker-compose.yml ps   # verificar "healthy"
-
-# 3. Rodar migrations
 pnpm db:migrate
-
-# 4. Criar user dev + API key (gera apps/api/.dev-key)
-pnpm db:bootstrap
-
-# 5. Subir API
-pnpm --filter @bright-memo/api dev
-# API em http://localhost:3001
-```
-
-## Verificação Rápida
-
-```bash
-# Health check (sem auth)
-curl http://localhost:3001/health
-# Esperado: {"status":"ok","db":"up",...}
-
-# /v1/me sem auth (deve dar 401)
-curl -i http://localhost:3001/v1/me
-
-# /v1/me com a dev key
-curl -H "Authorization: Bearer $(cat apps/api/.dev-key)" http://localhost:3001/v1/me
-# Esperado: {"user":{"id":"...","email":"dev@brightmemo.local",...}}
-
-# Criar key nova via bootstrap
-curl -X POST \
-  -H "X-Bootstrap-Token: $BOOTSTRAP_TOKEN_SECRET" \
-  -H "Content-Type: application/json" \
-  -d '{"email":"teste@x.com","name":"Teste"}' \
-  http://localhost:3001/v1/auth/keys
-# Esperado: {"key":"bm_xxx","user":{...},"prefix":"bm_abc12"}
+pnpm db:bootstrap       # gera apps/api/.dev-key
+pnpm --filter @bright-memo/api dev   # API :3001
+pnpm --filter @bright-memo/web dev   # Web :3000 (signup/login/dashboard)
+pnpm --filter @bright-memo/cli build && node apps/cli/dist/index.js --help   # CLI
 ```
 
 ## Estrutura
@@ -55,101 +21,139 @@ curl -X POST \
 ```
 bright-memo/
 ├── apps/
-│   ├── api/         # Fastify + Drizzle (porta 3001)
-│   ├── cli/         # pendente — Bun + commander
-│   └── web/         # pendente — Next.js
+│   ├── api/         Fastify + Drizzle, porta 3001
+│   ├── cli/         binário Node/Bun, comandos: config init install list save search status sync version
+│   └── web/         Next.js 15, porta 3000, UI mínima de auth + dashboard
 ├── packages/
-│   ├── shared/      # tipos + Zod schemas + constants
-│   └── skill/       # pendente — SKILL.md
+│   └── shared/      tipos + Zod schemas + constants (fonte única de contratos)
 ├── docker/
-│   ├── docker-compose.yml
+│   ├── docker-compose.yml      Postgres 16 + pgvector
 │   └── postgres.conf
 ├── scripts/
-│   ├── db-bootstrap.ts
-│   └── db-reset.ts
-└── docs/
+│   ├── db-bootstrap.ts         cria dev user + key
+│   ├── db-reset.ts             drop + migrate (pede confirmação)
+│   ├── install.ts              install flow das 4 fases (CLI standalone)
+│   ├── install-reset.ts        limpa estado do install
+│   ├── smoke-test.ts           smoke do API + DB
+│   └── e2e-gate.ts             gate E2E (install → save → search → context)
+├── .github/
+│   └── workflows/              CI.yml + e2e.yml
+├── apps/api/Dockerfile         build prod pro Coolify
+├── SKILL.md                    skill da Bright Memo (root)
+└── docs/                       você está aqui
 ```
 
-## Estado Atual
+## Setup Detalhado
 
-### ✅ Pronto (commitado em `feat/v2-rebuild`)
+### 1. Dependências
+```bash
+pnpm install
+```
+Build dependencies limitadas (`esbuild`) por causa de permissoes no pnpm 11.
 
-| Task | Descrição |
-|------|-----------|
-| T-001 | Monorepo (pnpm + Turbo + TS strict) |
-| T-002 | Husky + lint-staged + commitlint |
-| T-003 | `@bright-memo/shared` init |
-| T-004 | Tipos + Zod schemas (User, ApiKey, Project, Memory) |
-| T-005 | Zod schemas request/response (auth, projects, memories) |
-| T-006 | Constantes (11 paths /v1/*, error codes, scopes) |
-| T-007 | Docker Compose Postgres 16 + pgvector |
-| T-008 | Drizzle config + postgres-js client |
-| T-009 | Migration 0000 — tabelas |
-| T-010 | Migration 0001 — HNSW + GIN + btree |
-| T-011 | Migration 0002 — RLS + FORCE RLS + service role |
-| T-012 | Scripts DB (bootstrap + reset) |
-| T-013 | Init API (env config, Fastify boot) |
-| T-014 | Fastify + Pino + CORS |
-| T-015 | Plugin auth (argon2id api key) |
-| T-016 | Plugin db-context (SET LOCAL RLS) |
-| T-017 | Health + error handler |
-| T-018 | Endpoints auth (`/v1/auth/keys`, `/v1/me`) |
+### 2. Banco
+```bash
+pnpm db:up          # sobe Postgres 16 + pgvector na 5432
+pnpm db:migrate     # aplica 3 migrations (0000 tabelas, 0001 indices, 0002 RLS)
+pnpm db:bootstrap   # cria dev user (dev@brightmemo.local) + API key em apps/api/.dev-key
+```
 
-### ⚠️ Não verificado fim-a-fim
+Reset (apaga tudo e recria):
+```bash
+pnpm db:reset       # confirma, dropa schema, roda migrations, pede bootstrap
+```
 
-Por causa de cancelamentos de sessão de agents, T-013 ao T-018 foram commitados mas **não passaram pela sequência de verificação** (docker up, migrate, curl).
+### 3. API
+```bash
+pnpm --filter @bright-memo/api dev
+# Listening em http://localhost:3001
+```
 
-**Antes de continuar implementando T-019+, rodar a sequência de Verificação Rápida acima e garantir:**
-- API sobe sem erro
-- `/health` retorna 200
-- `/v1/me` autentica com a dev key
-- RLS filtra corretamente
+Crie `.env` em `apps/api/`:
+```bash
+cp apps/api/.env.example apps/api/.env
+# editar BOOTSTRAP_TOKEN_SECRET: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+# editar DATABASE_URL se necessário
+# OPENAI_API_KEY (opcional — server-side embeddings)
+```
 
-### ⏳ Pendente
+### 4. Web
+```bash
+pnpm --filter @bright-memo/web dev
+# http://localhost:3000
+```
+Páginas: `/login`, `/signup`, `/dashboard`, `/dashboard/projects`, `/dashboard/memories`, `/dashboard/search`, `/dashboard/settings`.
 
-| Task | Descrição |
-|------|-----------|
-| T-019 | Endpoints projects (CRUD parcial) |
-| T-020 | Endpoints memories (CRUD) |
-| T-021 | Endpoint search (HNSW) |
-| T-022 | OpenAI embeddings service |
-| T-023 | Hook embedding no POST memories |
-| T-024 | Search query embedding |
-| T-025-T-035 | CLI (binário Bun + 9 comandos) |
-| T-036-T-042 | Install flow (4 fases) |
-| T-043 | SKILL.md |
-| T-044-T-046 | Testes (smoke + E2E + validação IDE) |
-| T-047-T-051 | Web (Next.js: signup/login/dashboard) |
+### 5. CLI (instalável standalone)
+```bash
+pnpm --filter @bright-memo/cli build
+node apps/cli/dist/index.js --help
+```
+Ou rodar via Node sem build:
+```bash
+tsx apps/cli/src/index.ts --help
+```
+
+#### Comandos CLI
+| Comando | O que faz |
+|---|---|
+| `config` | ver/editar config local |
+| `init` | criar/identificar projeto no Bright Memo |
+| `install` | instalar skill + CLI nas IDEs detectadas |
+| `list` | listar memórias do projeto atual |
+| `save <texto>` | salvar memória nova (com embedding server-side) |
+| `search <query>` | busca semântica |
+| `status` | diagnóstico (key, user, projeto, IDEs) |
+| `sync` | sincronizar contexto |
+| `version` | versão do CLI |
+
+## Verificação Rápida
+
+```bash
+# Health (sem auth)
+curl http://localhost:3001/health
+# {"status":"ok","db":"up",...}
+
+# /me com dev key
+curl -H "Authorization: Bearer $(cat apps/api/.dev-key)" http://localhost:3001/v1/me
+
+# Criar key nova via bootstrap (precisa BOOTSTRAP_TOKEN_SECRET)
+curl -X POST \
+  -H "X-Bootstrap-Token: $BOOTSTRAP_TOKEN_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"teste@x.com","name":"Teste"}' \
+  http://localhost:3001/v1/auth/keys
+
+# Smoke test (roda via script)
+pnpm --filter @bright-memo/api smoke   # ou: tsx scripts/smoke-test.ts
+
+# E2E gate (install → save → search → context)
+tsx scripts/e2e-gate.ts
+```
 
 ## Comandos Úteis
 
 ```bash
-# Docker
-pnpm db:up                                 # sobe Postgres
-pnpm db:down                               # para Postgres
-pnpm db:logs                               # logs do container
-pnpm db:psql                               # psql conectado
-
 # DB
-pnpm db:migrate                            # roda migrations
-pnpm db:reset                              # drop + recreate + migrate (pede confirmação)
-pnpm db:bootstrap                          # cria dev user + key
-
-# API
-pnpm --filter @bright-memo/api dev         # dev mode (tsx watch)
-pnpm --filter @bright-memo/api build       # build produção
-pnpm --filter @bright-memo/api start       # roda build de produção
+pnpm db:up / db:down / db:logs / db:psql
+pnpm db:migrate / db:reset / db:bootstrap
 
 # Quality
-pnpm turbo lint                            # ESLint
-pnpm turbo build                           # build tudo
-pnpm turbo test                            # roda testes
-pnpm format                                # prettier write
+pnpm turbo lint
+pnpm turbo build
+pnpm turbo test
+pnpm format   # prettier write em tudo
+
+# Por app
+pnpm --filter @bright-memo/api <script>
+pnpm --filter @bright-memo/cli <script>
+pnpm --filter @bright-memo/web <script>
+pnpm --filter @bright-memo/shared <script>
 ```
 
 ## Variáveis de Ambiente
 
-API (`apps/api/.env`):
+### `apps/api/.env`
 ```bash
 PORT=3001
 DATABASE_URL=postgres://bright:changeme@localhost:5432/bright_memo
@@ -157,12 +161,20 @@ NODE_ENV=development
 LOG_LEVEL=info
 APP_URL=http://localhost:3001
 BOOTSTRAP_TOKEN_SECRET=<openssl rand -hex 32>
-OPENAI_API_KEY=sk-...                      # pendente usar (embeddings)
+OPENAI_API_KEY=sk-...    # embeddings server-side
 ```
 
-Gerar BOOTSTRAP_TOKEN_SECRET:
+### `apps/web/.env.local`
 ```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+NEXT_PUBLIC_API_URL=http://localhost:3001
+API_INTERNAL_URL=http://localhost:3001
+COOKIE_SECRET=<random>
+```
+
+### `apps/cli/.env` (opcional, env globals funcionam)
+```bash
+BRIGHT_MEMO_API_KEY=bm_xxx
+BRIGHT_MEMO_API_URL=http://localhost:3001
 ```
 
 ## Branch e Push
@@ -170,26 +182,72 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```bash
 # Branch atual: feat/v2-rebuild
 # Remote: github.com/lchenrique/bright-memo
+# Tag atual: v0.1.0
 
-git status                                 # working tree state
-git log --oneline -10                      # últimos commits
-git push origin feat/v2-rebuild            # enviar mudanças
+git status
+git log --oneline -20
+git push origin feat/v2-rebuild
+
+# Em outro PC:
+git clone https://github.com/lchenrique/bright-memo.git
+git checkout feat/v2-rebuild
+pnpm install && pnpm db:up && pnpm db:migrate && pnpm db:bootstrap
 ```
 
-Quando v2 estiver completa e validada:
+## Deploy (Coolify)
+
+`apps/api/Dockerfile` existe pra deploy no Coolify (ou qualquer Docker host).
+
 ```bash
-git checkout main
-git reset --hard origin/feat/v2-rebuild   # OU: merge, sua escolha
+docker build -f apps/api/Dockerfile -t bright-memo-api .
+docker run -p 3001:3001 --env-file apps/api/.env bright-memo-api
 ```
+
+Web tem `next.config.ts` standalone. Build:
+```bash
+pnpm --filter @bright-memo/web build
+```
+
+## Estado Atual (v0.1.0)
+
+Tag em commit `713504a feat(web): t-047..t-051 next.js app...`.
+
+### Pronto (commitado em `feat/v2-rebuild`)
+
+| Task | Descrição |
+|------|-----------|
+| T-001 → T-006 | Monorepo + Husky + shared package (tipos/Zod/constants) |
+| T-007 → T-012 | DB infra (Docker + Drizzle + 3 migrations + RLS + bootstrap) |
+| T-013 → T-018 | API auth (Fastify + plugins auth/db-context + /auth/keys + /me) |
+| T-019 | API projects CRUD (com gate pré-T-019) |
+| T-020 | API memories CRUD |
+| T-021 → T-024 | API search + OpenAI embeddings server-side |
+| T-025 → T-035 | CLI binário (init, save, list, search, status, sync, install, config, version) |
+| T-036 → T-042 | Install flow CLI (4 fases: key, IDE detect, project, marker) |
+| T-043 | SKILL.md (root) |
+| T-044 → T-046 | Smoke test + E2E gate + IDE checklist + CI workflows |
+| T-047 → T-051 | Web Next.js (login, signup, dashboard, projects, memories, search, settings) |
+| + | Dockerfile Coolify |
+| + | .github/workflows (ci.yml + e2e.yml) |
+
+### Pendente / Melhorias futuras
+
+- Refactor/cleanup de imports não usados em API
+- Migração completa de v1 (main) → main v2 (force-push ou merge)
+- CHANGELOG.md formal com notas de release
+- MFA no web signup
+- Sync streaming entre devices
+- Embedding model alternativo (Voyage, Cohere) — benchmark
 
 ## Notas Importantes
 
-- **MCP foi cortado** do escopo. Não tem mais `services/mcp/`.
-- **OAuth foi cortado**. Auth é só por API key.
-- **RLS ativa**. Queries sem `SET LOCAL app.current_user_id` retornam 0 rows.
-- **Bcrypt/argon2id** nas senhas e API keys.
-- **Embeddings** server-side via OpenAI (chave em 1 lugar só, server).
+- **MCP cortado.** Sem `services/mcp/` nesta branch.
+- **OAuth cortado.** Auth é só por API key (CLI) ou email+senha (web).
+- **RLS ativa.** Sem `SET LOCAL app.current_user_id`, queries retornam 0 rows.
+- **Service role** (`bright_service` no DB) faz bypass pra criação de users via `/auth/keys`.
+- **Embeddings** server-side via OpenAI. Chave em `apps/api/.env`. Nunca no client.
+- **Husky pre-commit** roda lint-staged (prettier + eslint). Pode falhar em CI sem TTY — usar `--no-verify` se necessário.
 
-## Histórico de Decisões
+## Histórico
 
-Ver `docs/specs/` (quando existir) ou mensagens de commit — conventional commits documentam o porquê de cada mudança.
+Ver `git log --oneline` e conventional commits. Cada task tem mensagem documentando o porquê.
