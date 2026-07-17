@@ -3,28 +3,24 @@
   "private": true,
   "version": "0.1.0",
   "description": "Bright Memo v2 monorepo",
+  "packageManager": "npm@11.9.0",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
-  "packageManager": "pnpm@11.0.0-beta.2",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
-  },
   "scripts": {
-    "build": "turbo run build",
-    "dev": "turbo run dev",
-    "lint": "turbo run lint",
-    "test": "turbo run test",
+    "build": "turbo run build --filter=./apps/* --filter=./packages/*",
+    "dev": "turbo run dev --filter=./apps/* --filter=./packages/*",
+    "lint": "turbo run lint --filter=./apps/* --filter=./packages/*",
+    "test": "turbo run test --filter=./apps/* --filter=./packages/*",
     "format": "prettier --write .",
-    "prepare": "husky",
+    "prepare": "husky || true",
     "db:up": "docker compose -f docker/docker-compose.yml up -d",
     "db:down": "docker compose -f docker/docker-compose.yml down",
     "db:logs": "docker compose -f docker/docker-compose.yml logs -f db",
     "db:psql": "docker compose -f docker/docker-compose.yml exec db psql -U bright -d bright_memo",
-    "db:migrate": "pnpm --filter @bright-memo/api drizzle-kit migrate",
+    "db:migrate": "npm run db:migrate --workspace=@bright-memo/api",
+    "db:generate": "npm run db:generate --workspace=@bright-memo/api",
     "db:reset": "tsx scripts/db-reset.ts",
     "db:bootstrap": "tsx scripts/db-bootstrap.ts"
   },
@@ -45,3 +41,7 @@
     "typescript-eslint": "^8.37.0"
   }
 }
+
+
+
+

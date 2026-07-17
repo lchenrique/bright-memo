@@ -9,7 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@bright-memo/shared": "workspace:*",
+    "@bright-memo/shared": "*",
     "next": "^15.3.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
