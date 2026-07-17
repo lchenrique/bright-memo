@@ -1,10 +1,10 @@
-﻿# Stage 1: Dependencies
+# Stage 1: Dependencies
 FROM node:22-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/api/package.json ./apps/api/package.json
 COPY packages/shared/package.json ./packages/shared/package.json
-RUN npm ci
+RUN npm ci --include=dev
 
 # Stage 2: Build
 FROM node:22-alpine AS builder
