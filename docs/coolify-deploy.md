@@ -1,18 +1,16 @@
-# Coolify deploy: Bright Memo v0.2.0
+# Coolify deploy: Bright Memo v0.2.1
 
-Este runbook prepara os recursos que serão criados no Coolify após commit, push e tag. Não use `db:bootstrap` em produção.
+Runbook only. Do not run `db:bootstrap` in production.
 
-## Recursos
+## Resources
 
-1. PostgreSQL 16 com pgvector disponível.
-2. Aplicação Docker usando contexto do repositório e `apps/api/Dockerfile`.
-3. Rede privada entre aplicação e banco.
+1. PostgreSQL 16 with pgvector available.
+2. Docker application built from repository root with `apps/api/Dockerfile`.
+3. Private network between API and database.
 
-Faça backup ou habilite point-in-time restore antes de aplicar migrations em banco com dados.
+Create a backup or point-in-time restore point before migration.
 
-## Variáveis do banco
-
-Configure URLs para o mesmo banco com três roles distintas:
+## Database variables
 
 ```dotenv
 DATABASE_URL=<admin-or-migration-postgres-url>
@@ -20,9 +18,9 @@ APP_DATABASE_URL=postgres://bright_app:<app-role-password>@<database-host>:5432/
 SERVICE_DATABASE_URL=postgres://bright_service:<service-role-password>@<database-host>:5432/<database-name>
 ```
 
-`DATABASE_URL` precisa criar extensão, roles e schema. `bright_app` permanece sem `BYPASSRLS`; `bright_service` usa `BYPASSRLS` apenas nos fluxos de auth/bootstrap da API.
+All URLs target same database. Admin URL must create extensions, roles and schema. `bright_app` uses forced RLS; `bright_service` bypasses RLS only for auth/bootstrap.
 
-## Variáveis da API
+## API variables
 
 ```dotenv
 NODE_ENV=production
@@ -30,34 +28,31 @@ PORT=3001
 LOG_LEVEL=info
 APP_URL=<comma-separated-allowed-web-origins>
 BOOTSTRAP_TOKEN_SECRET=<random-secret-at-least-32-characters>
-OPENAI_API_KEY=<optional-openai-key>
+# OPENAI_API_KEY=<optional-ranking-provider-key>
 ```
 
-Nunca reutilize placeholders. Não exponha `DATABASE_URL`, passwords, bootstrap token ou OpenAI key em logs/build args.
+`OPENAI_API_KEY` is optional. Missing or failing provider leaves API healthy: memories store nullable embeddings and search uses PostgreSQL FTS/trigram ranking. Never expose database URLs, passwords, bootstrap tokens or provider keys in logs/build args.
 
-## Build e comandos
+## Build and commands
 
-- Build context: raiz do repositório.
+- Build context: repository root.
 - Dockerfile: `apps/api/Dockerfile`.
-- Pre-deploy command: `node dist/db/deploy.js`.
-- Start command: use `CMD` da imagem, `node dist/server.js`.
-- Health check: `GET /health`, porta `3001`, esperado `200` com `db: "up"`.
+- Pre-deploy: `node dist/db/deploy.js`.
+- Start: image `CMD`, `node dist/server.js`.
+- Health check: `GET /health` on port `3001`.
 
-`db:deploy` é idempotente. Ele adquire advisory lock, habilita `vector`, cria ou atualiza as roles usando as URLs, aplica `0000` a `0002` e valida tabelas, journal, roles, policies e `FORCE ROW LEVEL SECURITY`.
+`db:deploy` is idempotent. It acquires an advisory lock, enables `vector` and `pg_trgm`, creates or rotates roles, applies migrations `0000` through `0003`, then validates tables, nullable embeddings, zero-vector cleanup, lexical/vector indexes, journal, roles, policies and forced RLS.
 
-## Smoke
-
-Após deploy:
+## Smoke criteria
 
 ```bash
 curl -i <api-base-url>/health
 curl -i <api-base-url>/v1/me
 ```
 
-Critérios:
+- `/health`: HTTP `200`, `status: "ok"`, `db: "up"`, version `0.2.1`.
+- `/v1/me` without Authorization: HTTP `401`.
+- Search without `OPENAI_API_KEY`: HTTP `200`, mode `lexical`, no embedding fields.
+- Restart/stop: clean shutdown, no `ERR_MODULE_NOT_FOUND` for `@bright-memo/shared`.
 
-- `/health`: HTTP 200, `status: "ok"`, `db: "up"`, `version: "0.2.0"`.
-- `/v1/me` sem Authorization: HTTP 401.
-- Reinício/stop: processo encerra com SIGTERM sem `ERR_MODULE_NOT_FOUND` para `@bright-memo/shared`.
-
-Se migration falhar, não inicie nova versão da API. Preserve logs sem URLs/segredos, restaure backup quando necessário e corrija a causa antes de repetir `node dist/db/deploy.js`.
+If migration fails, do not start new API version. Preserve sanitized logs, restore backup when needed, fix root cause, then rerun pre-deploy.

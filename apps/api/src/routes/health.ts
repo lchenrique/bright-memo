@@ -13,7 +13,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { db } from '../db/client.js';
 
 const startedAt = Date.now();
-const VERSION = '0.2.0';
+const VERSION = '0.2.1';
 
 const healthRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/health', { config: { public: true } }, async (_req, reply) => {

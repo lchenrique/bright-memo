@@ -1,6 +1,6 @@
 {
-  "id": "c2ed6c80-477a-4c49-ae8d-4910b1a68e22",
-  "prevId": "922ae250-44bc-4543-810f-9925a9b4ab7f",
+  "id": "32de8169-bb47-4a6c-8006-583e4107cde5",
+  "prevId": "cd577a73-fc85-457a-b8fe-5118f5f362ba",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -132,7 +132,7 @@
           "name": "embedding",
           "type": "vector(1536)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "source": {
           "name": "source",
@@ -205,6 +205,36 @@
           "isUnique": false,
           "concurrently": false,
           "method": "btree",
+          "with": {}
+        },
+        "memories_content_fts_idx": {
+          "name": "memories_content_fts_idx",
+          "columns": [
+            {
+              "expression": "to_tsvector('simple', \"content\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
+          "with": {}
+        },
+        "memories_content_trgm_idx": {
+          "name": "memories_content_trgm_idx",
+          "columns": [
+            {
+              "expression": "\"content\" gin_trgm_ops",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
           "with": {}
         }
       },

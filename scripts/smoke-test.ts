@@ -79,7 +79,7 @@ async function main() {
   }
 
   // CLI checks
-  if (!cliCheck('bm version', cliPath, ['version'], '0.2.0')) fail.push('bm version');
+  if (!cliCheck('bm version', cliPath, ['version'], '0.2.1')) fail.push('bm version');
   if (!cliCheck('bm status --help', cliPath, ['status', '--help'], /show API health/i))
     fail.push('bm status --help');
   if (

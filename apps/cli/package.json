@@ -1,6 +1,6 @@
 {
   "name": "@bright-memo/cli",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "bin": {
@@ -8,11 +8,15 @@
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "skill"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsx watch src/index.ts",
     "lint": "eslint .",
-    "test": "tsc --noEmit"
+    "test": "tsc --noEmit && tsx --test src/cli.test.ts test/*.test.ts"
   },
   "dependencies": {
     "@bright-memo/shared": "workspace:*",

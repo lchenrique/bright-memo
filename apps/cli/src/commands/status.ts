@@ -1,6 +1,8 @@
 import type { Command } from 'commander';
+
 import { apiCall } from '../lib/api.js';
 import { loadConfig } from '../lib/config.js';
+import { printJson } from '../lib/output.js';
 
 interface HealthResponse {
   status: string;
@@ -10,46 +12,43 @@ interface HealthResponse {
 }
 
 interface MeResponse {
-  email: string;
-  name: string | null;
+  user: { email: string; name: string | null };
 }
 
-export function statusCommand(program: Command) {
+export function statusCommand(program: Command): void {
   program
     .command('status')
-    .description('show API health and system status')
-    .action(async () => {
+    .description('show API health, authentication, and project configuration')
+    .option('--json', 'output one JSON value')
+    .action(async (options: { json?: boolean }) => {
       const config = loadConfig();
+      const health = await apiCall<HealthResponse>('/health');
+      const result: Record<string, unknown> = {
+        apiUrl: config.apiUrl,
+        apiKeyConfigured: Boolean(config.apiKey),
+        defaultProject: config.defaultProject ?? null,
+        health,
+        auth: config.apiKey ? 'configured' : 'skipped',
+      };
 
-      console.log(`API URL:   ${config.apiUrl ?? '(not set)'}`);
-      console.log(`API Key:   ${config.apiKey ? 'configured' : '(not set)'}`);
-
-      if (!config.apiUrl) {
-        return;
-      }
-
-      try {
-        const health = await apiCall<HealthResponse>('/health');
-        console.log(`Health:    ${health.status}`);
-        console.log(`DB:        ${health.db}`);
-        console.log(`Version:   ${health.version}`);
-        console.log(`Uptime:    ${health.uptime}s`);
-      } catch (err) {
-        console.log(`Health:    unreachable (${(err as Error).message})`);
-        return;
-      }
-
-      if (!config.apiKey) {
-        console.log('Auth:     skipped — no API key configured');
-        return;
-      }
-
-      try {
+      if (config.apiKey) {
         const me = await apiCall<MeResponse>('/v1/me');
-        const displayName = me.name ? `${me.email} (${me.name})` : me.email;
-        console.log(`User:      ${displayName}`);
-      } catch {
-        console.log('Auth:     failed — check your API key');
+        result.auth = 'ok';
+        result.user = me.user;
+      }
+
+      if (options.json) {
+        printJson(result);
+        return;
+      }
+      console.log(`API URL:   ${String(result.apiUrl)}`);
+      console.log(`Health:    ${health.status}`);
+      console.log(`DB:        ${health.db}`);
+      console.log(`Version:   ${health.version}`);
+      console.log(`Auth:      ${String(result.auth)}`);
+      if (result.user) {
+        const user = result.user as MeResponse['user'];
+        console.log(`User:      ${user.name ? `${user.email} (${user.name})` : user.email}`);
       }
     });
 }

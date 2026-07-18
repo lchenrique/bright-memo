@@ -48,7 +48,8 @@ pnpm --filter @bright-memo/api dev
 
 ## CLI
 
-- [ ] `node apps/cli/dist/index.js version` → `0.2.0`
+- [ ] `node apps/cli/dist/index.js version` -> `0.2.1`
+- [ ] `node apps/cli/dist/index.js skill install --client opencode --json` instala `bright-memory`
 - [ ] `node apps/cli/dist/index.js status --help` mostra help
 - [ ] `node apps/cli/dist/index.js config set --help` mostra help
 - [ ] `pnpm --filter @bright-memo/cli build` → exit 0 (sem erros TS)

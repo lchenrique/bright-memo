@@ -8,16 +8,16 @@
 import { customType } from 'drizzle-orm/pg-core';
 
 export const vector1536 = customType<{
-  data: number[];
-  driverData: string;
+  data: number[] | null;
+  driverData: string | null;
 }>({
   dataType() {
     return 'vector(1536)';
   },
-  toDriver(value: number[]): string {
-    return `[${value.join(',')}]`;
+  toDriver(value: number[] | null): string | null {
+    return value === null ? null : `[${value.join(',')}]`;
   },
-  fromDriver(value: string): number[] {
-    return value.slice(1, -1).split(',').map(Number);
+  fromDriver(value: string | null): number[] | null {
+    return value === null ? null : value.slice(1, -1).split(',').map(Number);
   },
 });

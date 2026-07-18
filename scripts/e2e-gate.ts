@@ -1,28 +1,9 @@
 /**
- * E2E gate for T-013 → T-018.
+ * E2E gate for health, auth, RLS, project/memory CRUD, and model-agnostic search.
+ * It can boot the compiled API or target E2E_API_URL, removes its fixtures, and
+ * exits non-zero on any failed assertion. OPENAI_API_KEY is unset for local boot.
  *
- * Boots the compiled API on a free port inside the test, runs the
- * verification sequence required by docs/dev-quickstart.md, then
- * shuts everything down and exits non-zero on the first failed
- * assertion.
- *
- * Assertions (order matters — each is its own step):
- *   1. GET /health                → 200 + status:ok + db:up
- *   2. GET /v1/me (no auth)       → 401 UNAUTHORIZED
- *   3. POST /v1/auth/keys
- *      + X-Bootstrap-Token        → 201 + returns a fresh API key (user A)
- *   4. GET /v1/me (key A)         → 200 + user.email matches what we sent
- *   5. Direct insert (service role) of project+memory for user A and B
- *   6. Direct app-role RLS proof  → SET LOCAL user A sees only A; user B sees only B
- *   7. GET /v1/me (key A)         → projects_count=1, memories_count=1
- *   8. POST /v1/auth/keys         → new key for user B
- *   9. GET /v1/me (key B)         → projects_count=1, memories_count=1
- *
- * The harness owns its own lifecycle: it cleans up the test users,
- * kills the API child, and removes the tmp scratch dir on exit
- * (success or failure). No persistent server is left running.
- *
- * Usage: pnpm tsx scripts/e2e-gate.ts
+ * Usage: pnpm exec tsx scripts/e2e-gate.ts
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -175,6 +156,7 @@ async function main(): Promise<void> {
 
   const apiEnv: NodeJS.ProcessEnv = {
     ...process.env,
+    OPENAI_API_KEY: undefined,
     PORT: String(port),
     HOST: '127.0.0.1',
     NODE_ENV: 'test',
@@ -668,179 +650,179 @@ async function main(): Promise<void> {
         assert(me4Body.memories_count === 1, 'GET /v1/me (key A) memories_count net 1 after CRUD'),
       );
 
-      // 12. T-021 /v1/memories/search — endpoint structure
+      // 12. Model-agnostic CRUD + lexical search. OPENAI_API_KEY is explicitly unset.
       {
-        // 12a. No q → 400
-        const sq0 = await fetch(`${baseUrl}/v1/memories/search`, {
+        const term = `FooBar${stamp}.ts`;
+        const targetContent = `Corrigir memória multilíngue em packages/shared/src/${term}`;
+        const patchedContent = `${targetContent} usando lexicalFallbackIdentifier`;
+
+        const missingQuery = await fetch(`${baseUrl}/v1/memories/search`, {
           headers: { authorization: `Bearer ${res.key}` },
         });
-        results.push(assert(sq0.status === 400, 'GET /v1/memories/search (no q) status 400'));
-
-        // 12b. With q — probe OpenAI availability (200=ok, 502=no key)
-        const sq1 = await fetch(
-          `${baseUrl}/v1/memories/search?q=${encodeURIComponent('meaning of life')}`,
-          { headers: { authorization: `Bearer ${res.key}` } },
-        );
-        const sq1Body = await readJson<Record<string, unknown>>(sq1);
-        const searchOk = sq1.status === 200;
-        const searchNoKey =
-          sq1.status === 502 &&
-          typeof sq1Body.error === 'object' &&
-          sq1Body.error !== null &&
-          (sq1Body.error as Record<string, unknown>).code === 'EMBEDDING_ERROR';
         results.push(
-          assert(
-            searchOk || searchNoKey,
-            `GET /v1/memories/search?q= status ${sq1.status} (200=ok, 502=no OpenAI key)`,
-          ),
+          assert(missingQuery.status === 400, 'GET /v1/memories/search (no q) status 400'),
         );
 
-        if (searchOk) {
-          results.push(assert(Array.isArray(sq1Body.results), 'search results is array'));
-          results.push(assert(typeof sq1Body.query === 'string', 'search response has query'));
-
-          const sResults = sq1Body.results as unknown[];
-          if (sResults.length > 0) {
-            const r0 = sResults[0] as Record<string, unknown>;
-            results.push(
-              assert(
-                typeof r0.similarity === 'number' && r0.similarity >= -1 && r0.similarity <= 1,
-                'search result[0].similarity in [-1,1]',
-              ),
-            );
-          }
-
-          // 13. T-021 content ranking — 2 memories, verify search returns them
-          {
-            const embA = Array.from({ length: 1536 }, () => 0.1);
-            const embB = Array.from({ length: 1536 }, () => 0.9);
-            const memAContent = `e2e-rank-a-${stamp}`;
-            const memBContent = `e2e-rank-b-${stamp}`;
-
-            const maRes = await fetch(`${baseUrl}/v1/memories`, {
-              method: 'POST',
-              headers: { 'content-type': 'application/json', authorization: `Bearer ${res.key}` },
-              body: JSON.stringify({
-                projectId: t020ProjectId,
-                content: memAContent,
-                source: 'agent',
-                embedding: embA,
-              }),
-            });
-            results.push(assert(maRes.status === 201, 'POST /v1/memories (rank A) status 201'));
-            const maBody = await readJson<Record<string, unknown>>(maRes);
-            const memAId = maBody.id;
-
-            const mbRes = await fetch(`${baseUrl}/v1/memories`, {
-              method: 'POST',
-              headers: { 'content-type': 'application/json', authorization: `Bearer ${res.key}` },
-              body: JSON.stringify({
-                projectId: t020ProjectId,
-                content: memBContent,
-                source: 'agent',
-                embedding: embB,
-              }),
-            });
-            results.push(assert(mbRes.status === 201, 'POST /v1/memories (rank B) status 201'));
-            const mbBody = await readJson<Record<string, unknown>>(mbRes);
-            const memBId = mbBody.id;
-
-            const srRes = await fetch(
-              `${baseUrl}/v1/memories/search?q=${encodeURIComponent('test ranking')}`,
-              { headers: { authorization: `Bearer ${res.key}` } },
-            );
-            results.push(
-              assert(srRes.status === 200, 'GET /v1/memories/search?q= (ranking) status 200'),
-            );
-            const srBody = await readJson<Record<string, unknown>>(srRes);
-            const srResults = srBody.results as unknown[];
-            results.push(assert(Array.isArray(srResults), 'ranking search results is array'));
-            results.push(assert(srResults.length >= 1, 'ranking search results non-empty'));
-
-            if (Array.isArray(srResults)) {
-              const foundA = srResults.some(
-                (r: unknown) => (r as Record<string, unknown>).id === memAId,
-              );
-              const foundB = srResults.some(
-                (r: unknown) => (r as Record<string, unknown>).id === memBId,
-              );
-              results.push(assert(foundA, 'ranking: memory A in search results'));
-              results.push(assert(foundB, 'ranking: memory B in search results'));
-
-              for (let i = 0; i < srResults.length && i < 2; i++) {
-                const sim = (srResults[i] as Record<string, unknown>).similarity;
-                results.push(
-                  assert(
-                    typeof sim === 'number' && sim >= -1 && sim <= 1,
-                    `ranking: result[${i}].similarity ${sim} in [-1,1]`,
-                  ),
-                );
-              }
-              if (srResults.length >= 2) {
-                const s0 = (srResults[0] as Record<string, unknown>).similarity as number;
-                const s1 = (srResults[1] as Record<string, unknown>).similarity as number;
-                results.push(assert(s0 >= s1, 'ranking: results ordered by similarity desc'));
-              }
-            }
-
-            // Cleanup ranking memories
-            await Promise.allSettled([
-              fetch(`${baseUrl}/v1/memories/${memAId}`, {
-                method: 'DELETE',
-                headers: { authorization: `Bearer ${res.key}` },
-              }),
-              fetch(`${baseUrl}/v1/memories/${memBId}`, {
-                method: 'DELETE',
-                headers: { authorization: `Bearer ${res.key}` },
-              }),
-            ]);
-          }
-        } else {
-          results.push(assert(true, 'T-021 ranking skipped (no OpenAI key)'));
-        }
-      }
-
-      // 14. T-023 auto-embed — POST without embedding body
-      {
-        const aeRes = await fetch(`${baseUrl}/v1/memories`, {
+        const createLexical = await fetch(`${baseUrl}/v1/memories`, {
           method: 'POST',
           headers: { 'content-type': 'application/json', authorization: `Bearer ${res.key}` },
           body: JSON.stringify({
             projectId: t020ProjectId,
-            content: `e2e-autoembed-${stamp}`,
+            content: targetContent,
             source: 'agent',
-            tags: ['e2e', 'auto-embed'],
+            tags: ['e2e', 'lexical'],
           }),
         });
+        results.push(
+          assert(createLexical.status === 201, 'POST /v1/memories without provider status 201'),
+        );
+        const createLexicalBody = await readJson<Record<string, unknown>>(createLexical);
+        const lexicalMemoryId = String(createLexicalBody.id ?? '');
 
-        if (aeRes.status === 201) {
-          results.push(assert(true, 'POST /v1/memories (no embedding) status 201'));
-          const aeBody = await readJson<Record<string, unknown>>(aeRes);
-          results.push(
-            assert(
-              Array.isArray(aeBody.embedding) && (aeBody.embedding as unknown[]).length === 1536,
-              'POST /v1/memories (no embedding) => embedding Array(1536)',
+        const storedAfterCreate = await service<{ embedding_is_null: boolean }[]>`
+          SELECT embedding IS NULL AS embedding_is_null
+          FROM memories
+          WHERE id = ${lexicalMemoryId}
+        `;
+        results.push(
+          assert(
+            storedAfterCreate[0]?.embedding_is_null === true,
+            'save without provider stores embedding NULL',
+          ),
+        );
+
+        const patchLexical = await fetch(`${baseUrl}/v1/memories/${lexicalMemoryId}`, {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${res.key}` },
+          body: JSON.stringify({ content: patchedContent }),
+        });
+        results.push(
+          assert(patchLexical.status === 200, 'PATCH /v1/memories without provider status 200'),
+        );
+        const storedAfterPatch = await service<{ embedding_is_null: boolean }[]>`
+          SELECT embedding IS NULL AS embedding_is_null
+          FROM memories
+          WHERE id = ${lexicalMemoryId}
+        `;
+        results.push(
+          assert(
+            storedAfterPatch[0]?.embedding_is_null === true,
+            'update without provider stores embedding NULL',
+          ),
+        );
+
+        const otherProjectMemory = await service<{ id: string }[]>`
+          INSERT INTO memories (project_id, user_id, content, embedding, source, tags)
+          VALUES (
+            ${projectId},
+            ${userAId},
+            ${`other project duplicate ${term}`},
+            NULL,
+            'agent',
+            ARRAY['e2e', 'lexical']::text[]
+          )
+          RETURNING id
+        `;
+        const userBMemory = await service<{ id: string }[]>`
+          INSERT INTO memories (project_id, user_id, content, embedding, source, tags)
+          VALUES (
+            ${projectBId},
+            ${resB.userId},
+            ${`user B private duplicate ${term}`},
+            NULL,
+            'agent',
+            ARRAY['e2e', 'lexical']::text[]
+          )
+          RETURNING id
+        `;
+
+        const searchParams = new URLSearchParams({
+          q: term,
+          projectId: String(t020ProjectId),
+          limit: '5',
+          tags: 'e2e,lexical',
+        });
+        const lexicalSearch = await fetch(
+          `${baseUrl}/v1/memories/search?${searchParams.toString()}`,
+          { headers: { authorization: `Bearer ${res.key}` } },
+        );
+        results.push(
+          assert(
+            lexicalSearch.status === 200,
+            `GET lexical search without OpenAI status 200 (got ${lexicalSearch.status})`,
+          ),
+        );
+        const lexicalBody = await readJson<Record<string, unknown>>(lexicalSearch);
+        results.push(assert(lexicalBody.mode === 'lexical', 'search mode === "lexical"'));
+        results.push(assert(lexicalBody.query === term, 'search response preserves query'));
+        results.push(
+          assert(
+            typeof lexicalBody.filters === 'object' && lexicalBody.filters !== null,
+            'search response includes applied filters',
+          ),
+        );
+
+        const lexicalResults = Array.isArray(lexicalBody.results) ? lexicalBody.results : [];
+        results.push(assert(lexicalResults.length >= 1, 'lexical search returns relevant memory'));
+        const first = lexicalResults[0] as Record<string, unknown> | undefined;
+        results.push(
+          assert(first?.id === lexicalMemoryId, 'lexical search ranks exact path memory first'),
+        );
+        results.push(assert(first?.rank === 1, 'lexical search first result rank === 1'));
+        results.push(
+          assert(typeof first?.score === 'number', 'lexical search exposes ranking score'),
+        );
+        results.push(
+          assert(
+            typeof first?.match === 'object' && first.match !== null,
+            'lexical search exposes match metadata',
+          ),
+        );
+        results.push(
+          assert(!first || !('embedding' in first), 'search result never exposes embedding'),
+        );
+        results.push(
+          assert(
+            lexicalResults.every(
+              (item) => (item as Record<string, unknown>).projectId === t020ProjectId,
             ),
-          );
-          const aeId = aeBody.id;
-          if (typeof aeId === 'string') {
-            await fetch(`${baseUrl}/v1/memories/${aeId}`, {
-              method: 'DELETE',
-              headers: { authorization: `Bearer ${res.key}` },
-            });
-          }
-        } else if (aeRes.status === 422) {
-          results.push(
-            assert(
-              false,
-              'POST /v1/memories (no embedding) 422 — embedding required by schema, auto-embed unreachable',
+            'search projectId filter excludes same-user other project',
+          ),
+        );
+        results.push(
+          assert(
+            !lexicalResults.some(
+              (item) => (item as Record<string, unknown>).id === userBMemory[0]?.id,
             ),
-          );
-        } else {
-          results.push(
-            assert(false, `POST /v1/memories (no embedding) status ${aeRes.status} unexpected`),
-          );
-        }
+            'search user scope excludes other user',
+          ),
+        );
+
+        const allUserSearch = await fetch(
+          `${baseUrl}/v1/memories/search?q=${encodeURIComponent(term)}&limit=10`,
+          { headers: { authorization: `Bearer ${res.key}` } },
+        );
+        const allUserBody = await readJson<Record<string, unknown>>(allUserSearch);
+        const allUserResults = Array.isArray(allUserBody.results) ? allUserBody.results : [];
+        results.push(
+          assert(allUserSearch.status === 200, 'search without projectId remains compatible'),
+        );
+        results.push(
+          assert(
+            allUserResults.some(
+              (item) => (item as Record<string, unknown>).id === otherProjectMemory[0]?.id,
+            ),
+            'search without projectId can return another owned project',
+          ),
+        );
+        results.push(
+          assert(
+            !allUserResults.some(
+              (item) => (item as Record<string, unknown>).id === userBMemory[0]?.id,
+            ),
+            'search without projectId still isolates users',
+          ),
+        );
       }
     }
   } catch (err) {

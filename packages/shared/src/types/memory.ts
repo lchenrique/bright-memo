@@ -1,1 +1,11 @@
-export type { Memory, MemorySource } from '../schemas/memory.js';
+export type {
+  Memory,
+  MemoryResponse,
+  MemorySource,
+  SearchFilters,
+  SearchMatch,
+  SearchMode,
+  SearchRequest,
+  SearchResponse,
+  SearchResult,
+} from '../schemas/memory.js';

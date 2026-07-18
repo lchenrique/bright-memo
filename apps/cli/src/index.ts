@@ -9,10 +9,13 @@ import { searchCommand } from './commands/search.js';
 import { statusCommand } from './commands/status.js';
 import { syncCommand } from './commands/sync.js';
 import { installCommand } from './commands/install.js';
+import { skillCommand } from './commands/skill.js';
+import { ApiError, CliError, statusToExitCode } from './lib/errors.js';
+import { printJson } from './lib/output.js';
 
 const program = new Command();
 
-program.name('bm').description('Bright Memo CLI').version('0.2.0');
+program.name('bm').description('Bright Memo CLI').version('0.2.1');
 
 versionCommand(program);
 configCommand(program);
@@ -23,5 +26,16 @@ searchCommand(program);
 statusCommand(program);
 syncCommand(program);
 installCommand(program);
+skillCommand(program);
 
-program.parse(process.argv);
+program.parseAsync(process.argv).catch((error: unknown) => {
+  const json = process.argv.includes('--json');
+  const message = error instanceof Error ? error.message : String(error);
+  const code = error instanceof ApiError ? error.code : undefined;
+  if (json) printJson({ error: { code: code ?? 'CLI_ERROR', message } });
+  else console.error(`Error: ${message}`);
+
+  if (error instanceof ApiError) process.exitCode = statusToExitCode(error.statusCode);
+  else if (error instanceof CliError) process.exitCode = error.exitCode;
+  else process.exitCode = 1;
+});

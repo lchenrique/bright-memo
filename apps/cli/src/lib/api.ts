@@ -9,7 +9,7 @@ export interface ApiOptions {
 
 export async function apiCall<T>(path: string, options: ApiOptions = {}): Promise<T> {
   const config = loadConfig();
-  const baseUrl = config.apiUrl?.replace(/\/+$/, '') ?? 'http://localhost:3000';
+  const baseUrl = config.apiUrl?.replace(/\/+$/, '') ?? 'http://localhost:3001';
   const url = `${baseUrl}${path}`;
 
   const headers: Record<string, string> = {

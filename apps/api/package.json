@@ -1,6 +1,6 @@
 {
   "name": "@bright-memo/api",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "main": "./dist/server.js",
@@ -28,7 +28,7 @@
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
     "lint": "eslint .",
-    "test": "tsc --noEmit",
+    "test": "tsc --noEmit && tsx --test src/**/*.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:deploy": "tsx src/db/deploy.ts",
     "db:migrate": "pnpm db:deploy",

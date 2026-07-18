@@ -1,48 +1,56 @@
+import type { SearchResponse } from '@bright-memo/shared';
 import type { Command } from 'commander';
+
 import { apiCall } from '../lib/api.js';
+import { CliError } from '../lib/errors.js';
+import { positiveInteger, printJson } from '../lib/output.js';
+import { resolveProject } from '../lib/projects.js';
 
-interface SearchResult {
-  content: string;
-  tags: string[];
-  similarity: number;
-  createdAt: string;
+function truncate(value: string, max: number): string {
+  return value.length <= max ? value : `${value.slice(0, max - 1)}\u2026`;
 }
 
-interface SearchResponse {
-  results: SearchResult[];
-  query: string;
-}
-
-function truncate(s: string, max: number): string {
-  if (s.length <= max) return s;
-  return s.slice(0, max - 1) + '\u2026';
-}
-
-export function searchCommand(program: Command) {
+export function searchCommand(program: Command): void {
   program
     .command('search <query>')
-    .description('search memories using semantic + full-text search')
-    .option('-l, --limit <number>', 'max results')
-    .action(async (query: string, opts: { limit?: string }) => {
-      const encoded = encodeURIComponent(query);
-      const data = await apiCall<SearchResponse>(`/v1/memories/search?q=${encoded}`);
+    .description('search project memories with lexical retrieval and optional hybrid ranking')
+    .option('-p, --project <alias-or-id>', 'project alias or UUID')
+    .option('-l, --limit <number>', 'max results', '20')
+    .option('-t, --tags <tags>', 'comma-separated required tags')
+    .option('--json', 'output complete response as one JSON value')
+    .action(
+      async (
+        query: string,
+        options: { project?: string; limit?: string; tags?: string; json?: boolean },
+      ) => {
+        const project = await resolveProject(options.project);
+        const limit = positiveInteger(options.limit, 20, 'limit');
+        if (limit < 1 || limit > 100) throw new CliError('limit must be between 1 and 100');
 
-      const limit = opts.limit ? parseInt(opts.limit, 10) : data.results.length;
-      const page = data.results.slice(0, limit);
+        const params = new URLSearchParams({
+          q: query,
+          projectId: project.id,
+          limit: String(limit),
+        });
+        if (options.tags) params.set('tags', options.tags);
+        const response = await apiCall<SearchResponse>(`/v1/memories/search?${params.toString()}`);
 
-      if (page.length === 0) {
-        console.log('No results found.');
-        return;
-      }
+        if (options.json) {
+          printJson(response);
+          return;
+        }
 
-      console.log('');
-      page.forEach((r, i) => {
-        const rank = String(i + 1).padStart(3);
-        const sim = `${(r.similarity * 100).toFixed(1)}%`.padStart(7);
-        const content = truncate(r.content, 120).padEnd(122);
-        const tags = (r.tags ?? []).join(',').slice(0, 20).padEnd(22);
-        const date = r.createdAt ? new Date(r.createdAt).toLocaleDateString() : '-';
-        console.log(`${rank}  ${sim}  ${content} ${tags} ${date}`);
-      });
-    });
+        console.log(`Mode: ${response.mode}`);
+        if (response.results.length === 0) {
+          console.log('No results found.');
+          return;
+        }
+        for (const result of response.results) {
+          const rank = String(result.rank).padStart(3);
+          const score = result.score.toFixed(6).padStart(10);
+          const content = truncate(result.content, 120);
+          console.log(`${rank}  ${score}  ${content}`);
+        }
+      },
+    );
 }

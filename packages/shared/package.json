@@ -1,6 +1,6 @@
 {
   "name": "@bright-memo/shared",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -18,7 +18,7 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "lint": "eslint .",
-    "test": "tsc --noEmit"
+    "test": "tsc --noEmit && tsx --test test/*.test.ts"
   },
   "dependencies": {
     "zod": "^4.0.0"
