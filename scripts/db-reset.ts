@@ -1,8 +1,8 @@
 /**
  * Destructive database reset.
  *
- * Drops the `bright_memo` database, recreates it, and re-applies every
- * migration from `apps/api/drizzle`. Intended for local development only —
+ * Drops the `bright_memo` database, recreates it, then deploys extensions,
+ * roles, migrations, and RLS. Intended for local development only —
  * the script asks for confirmation before doing anything.
  *
  * Usage:
@@ -10,7 +10,7 @@
  *   pnpm db:reset --yes      # skip confirmation (CI / scripted)
  */
 
-import { execSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
 
@@ -80,33 +80,21 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  log('stopping db container (so we can drop the DB cleanly)');
-  dockerCompose(['stop', 'db']);
+  log('ensuring the local database container is healthy');
+  dockerCompose(['up', '-d', '--wait', 'db']);
 
-  log(`dropping database "${DB_NAME}" if it exists`);
-  try {
-    execPsql(`DROP DATABASE IF EXISTS "${DB_NAME}";`);
-  } catch (err) {
-    log(`drop failed (might already be gone): ${(err as Error).message}`);
-  }
+  log(`terminating connections to "${DB_NAME}"`);
+  execPsql(
+    `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${DB_NAME}' AND pid <> pg_backend_pid();`,
+  );
+  log(`dropping and recreating database "${DB_NAME}"`);
+  execPsql(`DROP DATABASE IF EXISTS "${DB_NAME}";`);
+  execPsql(`CREATE DATABASE "${DB_NAME}" OWNER "${DB_USER}";`);
 
-  log('starting db container (this re-runs /docker-entrypoint-initdb.d)');
-  dockerCompose(['up', '-d', 'db']);
-
-  log('waiting for healthy');
-  for (let i = 0; i < 30; i += 1) {
-    const status = execSync('docker compose -f docker/docker-compose.yml ps --format json', {
-      encoding: 'utf8',
-    });
-    if (status.includes('"Health":"healthy"')) break;
-    await new Promise((r) => setTimeout(r, 1000));
-  }
-
-  log('running migrations');
-  execSync('pnpm --filter @bright-memo/api drizzle-kit migrate', {
-    stdio: 'inherit',
-    shell: true,
-  });
+  log('deploying extensions, roles, migrations, and RLS');
+  const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
+  const deploy = spawnSync(pnpmCommand, ['db:deploy'], { stdio: 'inherit', shell: false });
+  if (deploy.status !== 0) throw new Error(`pnpm db:deploy exited ${deploy.status}`);
 
   log('done. Run `pnpm db:bootstrap` to create the dev user + API key.');
 }

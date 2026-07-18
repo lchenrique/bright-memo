@@ -8,26 +8,13 @@
 --
 -- We also `FORCE ROW LEVEL SECURITY` so the policies apply to the table
 -- owner too — otherwise the bright superuser would bypass RLS by default.
--- The `bright_service` role is created with `BYPASSRLS` so /auth/keys and
--- the bootstrap script can mint new users / API keys without RLS.
+-- `db:deploy` provisions `bright_service` with `BYPASSRLS` so /auth/keys
+-- and the bootstrap script can mint new users / API keys without RLS.
 -- ---------------------------------------------------------------------------
 
--- 1. Service role: used by the API bootstrap and the /auth/keys endpoints.
---    BYPASSRLS means it sees every row regardless of policies.
---    App role is created without BYPASSRLS so the policies below apply to
---    every req.db query. The standalone ALTER below is the idempotent
---    guarantee that bright_app can never end up with BYPASSRLS even if it
---    was created/edited out-of-band between migrations.
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'bright_service') THEN
-    CREATE ROLE bright_service BYPASSRLS LOGIN PASSWORD 'changeme';
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'bright_app') THEN
-    CREATE ROLE bright_app LOGIN PASSWORD 'changeme';
-  END IF;
-END
-$$;
+-- 1. `db:deploy` creates/rotates both login roles from APP_DATABASE_URL and
+--    SERVICE_DATABASE_URL before applying migrations. Passwords never live in
+--    migration files. This migration owns privileges and RLS attributes.
 
 -- 1a-bis. Belt-and-suspenders: explicitly enforce NOBYPASSRLS on bright_app.
 --         Idempotent — Postgres' ALTER ROLE is a no-op when the attribute is
@@ -62,26 +49,25 @@ ALTER TABLE "memories" FORCE  ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "user_all" ON "users";
 CREATE POLICY "user_all" ON "users"
   FOR ALL
-  USING       (id = current_setting('app.current_user_id', true)::uuid)
-  WITH CHECK  (id = current_setting('app.current_user_id', true)::uuid);
+  USING       (id = NULLIF(current_setting('app.current_user_id', true), '')::uuid)
+  WITH CHECK  (id = NULLIF(current_setting('app.current_user_id', true), '')::uuid);
 
--- 4. Everything else filters on `user_id`. The `current_setting(..., true)`
---    form returns NULL on missing GUC instead of raising — `NULL::uuid`
---    never matches a row, so an unset user_id can never see data.
+-- 4. Everything else filters on `user_id`. NULLIF handles both a missing
+--    GUC and the empty value left after SET LOCAL, so no context sees no rows.
 DROP POLICY IF EXISTS "user_all" ON "api_keys";
 CREATE POLICY "user_all" ON "api_keys"
   FOR ALL
-  USING       (user_id = current_setting('app.current_user_id', true)::uuid)
-  WITH CHECK  (user_id = current_setting('app.current_user_id', true)::uuid);
+  USING       (user_id = NULLIF(current_setting('app.current_user_id', true), '')::uuid)
+  WITH CHECK  (user_id = NULLIF(current_setting('app.current_user_id', true), '')::uuid);
 
 DROP POLICY IF EXISTS "user_all" ON "projects";
 CREATE POLICY "user_all" ON "projects"
   FOR ALL
-  USING       (user_id = current_setting('app.current_user_id', true)::uuid)
-  WITH CHECK  (user_id = current_setting('app.current_user_id', true)::uuid);
+  USING       (user_id = NULLIF(current_setting('app.current_user_id', true), '')::uuid)
+  WITH CHECK  (user_id = NULLIF(current_setting('app.current_user_id', true), '')::uuid);
 
 DROP POLICY IF EXISTS "user_all" ON "memories";
 CREATE POLICY "user_all" ON "memories"
   FOR ALL
-  USING       (user_id = current_setting('app.current_user_id', true)::uuid)
-  WITH CHECK  (user_id = current_setting('app.current_user_id', true)::uuid);
+  USING       (user_id = NULLIF(current_setting('app.current_user_id', true), '')::uuid)
+  WITH CHECK  (user_id = NULLIF(current_setting('app.current_user_id', true), '')::uuid);

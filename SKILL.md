@@ -22,23 +22,23 @@ bright-memo/
 
 ### Tech Stack
 
-| Layer       | Tech                      |
-| ----------- | ------------------------- |
-| Runtime     | Node 22+ (pnpm 11 beta)   |
-| Framework   | Fastify + Pino + CORS     |
-| ORM         | Drizzle ORM + postgres-js |
-| DB          | Postgres 16 + pgvector    |
-| Package Mgr | pnpm workspaces + Turbo 2 |
-| Auth        | argon2id API key (Bearer) |
-| Quality     | ESLint + Prettier + Husky |
-| Language    | TypeScript strict         |
+| Layer       | Tech                        |
+| ----------- | --------------------------- |
+| Runtime     | Node 22.23.1 + pnpm 11.14.0 |
+| Framework   | Fastify + Pino + CORS       |
+| ORM         | Drizzle ORM + postgres-js   |
+| DB          | Postgres 16 + pgvector      |
+| Package Mgr | pnpm workspaces + Turbo 2   |
+| Auth        | argon2id API key (Bearer)   |
+| Quality     | ESLint + Prettier + Husky   |
+| Language    | TypeScript strict           |
 
 ## Setup Local
 
 ```bash
 pnpm install
 docker compose -f docker/docker-compose.yml up -d
-pnpm db:migrate
+pnpm db:deploy
 pnpm db:bootstrap          # cria dev user + key em apps/api/.dev-key
 pnpm --filter @bright-memo/api dev
 ```
@@ -49,7 +49,9 @@ API em http://localhost:3001
 
 ```bash
 PORT=3001
-DATABASE_URL=postgres://bright:changeme@localhost:5432/bright_memo
+DATABASE_URL=postgres://bright:<admin-password>@localhost:5432/bright_memo
+APP_DATABASE_URL=postgres://bright_app:<app-password>@localhost:5432/bright_memo
+SERVICE_DATABASE_URL=postgres://bright_service:<service-password>@localhost:5432/bright_memo
 NODE_ENV=development
 LOG_LEVEL=info
 APP_URL=http://localhost:3001
@@ -129,15 +131,15 @@ Exports:
 ## Comandos Uteis
 
 ```bash
-pnpm install              # instalar
-pnpm build                # build tudo (turbo)
-pnpm lint                 # lint tudo
-pnpm test                 # testes (turbo)
+pnpm install --frozen-lockfile
+pnpm build:all            # build tudo (turbo)
+pnpm lint:all             # lint tudo
+pnpm test:all             # testes (turbo)
 pnpm format               # prettier
 
 pnpm db:up                # docker compose up postgres
 pnpm db:down              # docker compose down
-pnpm db:migrate           # drizzle-kit migrate
+pnpm db:deploy            # vector + roles + migrations + validação
 pnpm db:reset             # drop + recreate + migrate
 pnpm db:bootstrap         # cria dev user + key
 pnpm db:psql              # psql dentro do container
@@ -179,4 +181,4 @@ T-013 a T-018 commitados mas curl nao testado. Rodar dev-quickstart antes de con
 2. RLS: ativo em todas queries normais. Usar serviceDb so onde necessario (auth/keys).
 3. Embeddings: OpenAI server-side, 1 chave, gerado automaticamente, fallback 1536 zeros.
 4. MCP: cortado do escopo.
-5. Branch atual: feat/v2-rebuild. Remote: github.com/lchenrique/bright-memo.
+5. Branch atual: release/v0.2.0. Remote: github.com/lchenrique/bright-memo.

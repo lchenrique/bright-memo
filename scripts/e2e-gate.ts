@@ -38,9 +38,9 @@ const __dirname = dirname(__filename);
 const REPO_ROOT = join(__dirname, '..');
 const API_DIST = join(REPO_ROOT, 'apps', 'api', 'dist', 'server.js');
 
-loadEnv({ path: join(REPO_ROOT, 'apps', 'api', '.env') });
-loadEnv({ path: join(REPO_ROOT, 'docker', '.env') });
-loadEnv({ path: join(REPO_ROOT, '.env') });
+loadEnv({ path: join(REPO_ROOT, 'apps', 'api', '.env'), quiet: true });
+loadEnv({ path: join(REPO_ROOT, 'docker', '.env'), quiet: true });
+loadEnv({ path: join(REPO_ROOT, '.env'), quiet: true });
 
 const BOOTSTRAP_TOKEN_SECRET = process.env.BOOTSTRAP_TOKEN_SECRET;
 if (!BOOTSTRAP_TOKEN_SECRET) {
@@ -48,15 +48,13 @@ if (!BOOTSTRAP_TOKEN_SECRET) {
   process.exit(2);
 }
 
+const EXTERNAL_API_URL = process.env.E2E_API_URL?.replace(/\/+$/, '');
+
 const SERVICE_DATABASE_URL =
   process.env.SERVICE_DATABASE_URL ??
   'postgres://bright_service:changeme@localhost:5432/bright_memo';
 const APP_DATABASE_URL =
-  process.env.APP_DATABASE_URL ??
-  process.env.DATABASE_URL ??
-  'postgres://bright_app:changeme@localhost:5432/bright_memo';
-const ADMIN_DATABASE_URL =
-  process.env.ADMIN_DATABASE_URL ?? 'postgres://bright:changeme@localhost:5432/bright_memo';
+  process.env.APP_DATABASE_URL ?? 'postgres://bright_app:changeme@localhost:5432/bright_memo';
 
 interface Assertion {
   name: string;
@@ -154,25 +152,6 @@ async function cleanupServiceRows(sql: postgres.Sql, emails: string[]): Promise<
   await sql.unsafe(`DELETE FROM users WHERE email = ANY($1)`, [emails]);
 }
 
-async function ensureDatabaseRoles(sql: postgres.Sql): Promise<void> {
-  await sql.unsafe(`
-    DO $$
-    BEGIN
-      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'bright_service') THEN
-        CREATE ROLE bright_service BYPASSRLS LOGIN PASSWORD 'changeme';
-      END IF;
-      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'bright_app') THEN
-        CREATE ROLE bright_app LOGIN PASSWORD 'changeme';
-      END IF;
-      ALTER ROLE bright_app NOBYPASSRLS;
-    END
-    $$;
-    GRANT USAGE ON SCHEMA public TO bright_service, bright_app;
-    GRANT SELECT, INSERT, UPDATE, DELETE ON users, api_keys, projects, memories TO bright_service;
-    GRANT SELECT, INSERT, UPDATE, DELETE ON users, api_keys, projects, memories TO bright_app;
-  `);
-}
-
 async function selectVisibleOwnerIds(
   app: postgres.Sql,
   userId: string,
@@ -191,8 +170,8 @@ async function selectVisibleOwnerIds(
 }
 
 async function main(): Promise<void> {
-  const port = await pickFreePort();
-  const baseUrl = `http://127.0.0.1:${port}`;
+  const port = EXTERNAL_API_URL ? undefined : await pickFreePort();
+  const baseUrl = EXTERNAL_API_URL ?? `http://127.0.0.1:${port}`;
 
   const apiEnv: NodeJS.ProcessEnv = {
     ...process.env,
@@ -202,34 +181,31 @@ async function main(): Promise<void> {
     LOG_LEVEL: 'info',
   };
 
-  const admin = postgres(ADMIN_DATABASE_URL, { max: 1, prepare: false });
-  try {
-    await ensureDatabaseRoles(admin);
-  } finally {
-    await admin.end({ timeout: 5 });
-  }
-
-  console.log(`[gate] booting api on ${baseUrl}`);
-  const api: ChildProcess = spawn('node', [API_DIST], {
-    env: apiEnv,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    windowsHide: true,
-  });
-
+  let api: ChildProcess | undefined;
   let apiLog = '';
-  api.stdout?.on('data', (chunk: Buffer) => {
-    const s = chunk.toString();
-    apiLog += s;
-    process.stdout.write(`[api] ${s}`);
-  });
-  api.stderr?.on('data', (chunk: Buffer) => {
-    const s = chunk.toString();
-    apiLog += s;
-    process.stderr.write(`[api!] ${s}`);
-  });
-  api.on('exit', (code, signal) => {
-    apiLog += `\n[api exited code=${code} signal=${signal}]`;
-  });
+  if (EXTERNAL_API_URL) {
+    console.log(`[gate] using external api on ${baseUrl}`);
+  } else {
+    console.log(`[gate] booting api on ${baseUrl}`);
+    api = spawn('node', [API_DIST], {
+      env: apiEnv,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+    api.stdout?.on('data', (chunk: Buffer) => {
+      const s = chunk.toString();
+      apiLog += s;
+      process.stdout.write(`[api] ${s}`);
+    });
+    api.stderr?.on('data', (chunk: Buffer) => {
+      const s = chunk.toString();
+      apiLog += s;
+      process.stderr.write(`[api!] ${s}`);
+    });
+    api.on('exit', (code, signal) => {
+      apiLog += `\n[api exited code=${code} signal=${signal}]`;
+    });
+  }
 
   const service = postgres(SERVICE_DATABASE_URL, { max: 1, prepare: false });
   const appRole = postgres(APP_DATABASE_URL, { max: 1, prepare: false });
@@ -366,6 +342,10 @@ async function main(): Promise<void> {
         'content',
         memoryMarkers,
       );
+      const rowsWithoutContext = await appRole<{ count: number }[]>`
+        SELECT count(*)::int AS count FROM projects
+        WHERE cwd_alias = ANY(${projectMarkers})
+      `;
       results.push(
         assert(
           projectsSeenByA.length === 1 && projectsSeenByA[0] === userAId,
@@ -388,6 +368,12 @@ async function main(): Promise<void> {
         assert(
           memoriesSeenByB.length === 1 && memoriesSeenByB[0] === resB.userId,
           'direct app-role RLS: user B sees only memory B',
+        ),
+      );
+      results.push(
+        assert(
+          rowsWithoutContext[0]?.count === 0,
+          'direct app-role RLS: missing user context sees zero rows',
         ),
       );
 
@@ -869,7 +855,7 @@ async function main(): Promise<void> {
     await appRole.end({ timeout: 5 });
     await service.end({ timeout: 5 });
 
-    if (api.exitCode === null) {
+    if (api && api.exitCode === null) {
       api.kill('SIGTERM');
       const exitDeadline = Date.now() + 3000;
       while (Date.now() < exitDeadline && api.exitCode === null) {

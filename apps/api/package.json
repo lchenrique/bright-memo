@@ -1,10 +1,14 @@
 {
   "name": "@bright-memo/api",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "main": "./dist/server.js",
   "types": "./dist/server.d.ts",
+  "files": [
+    "dist",
+    "drizzle"
+  ],
   "exports": {
     ".": {
       "types": "./dist/server.d.ts",
@@ -26,7 +30,8 @@
     "lint": "eslint .",
     "test": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:deploy": "tsx src/db/deploy.ts",
+    "db:migrate": "pnpm db:deploy",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"
   },

@@ -28,9 +28,6 @@ const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const APPS_API_DIR = join(REPO_ROOT, 'apps', 'api');
 const DEV_KEY_PATH = join(APPS_API_DIR, '.dev-key');
 
-const DEFAULT_SUPERUSER_URL =
-  'postgres://bright:changeme@localhost:5432/bright_memo';
-
 const DEV_USER_EMAIL = 'dev@brightmemo.local';
 const DEV_USER_NAME = 'Dev User';
 const KEY_PREFIX = 'bm_';
@@ -45,9 +42,9 @@ interface BootstrapResult {
 }
 
 function loadConfig(): { adminUrl: string; bootstrapUrl: string } {
-  loadEnv({ path: join(REPO_ROOT, '.env') });
-  loadEnv({ path: join(REPO_ROOT, 'docker', '.env') });
-  loadEnv({ path: join(APPS_API_DIR, '.env') });
+  loadEnv({ path: join(REPO_ROOT, '.env'), quiet: true });
+  loadEnv({ path: join(REPO_ROOT, 'docker', '.env'), quiet: true });
+  loadEnv({ path: join(APPS_API_DIR, '.env'), quiet: true });
 
   const dbPass = process.env.DB_PASS ?? 'changeme';
   const servicePass = process.env.SERVICE_DB_PASS ?? dbPass;
@@ -67,10 +64,7 @@ function loadConfig(): { adminUrl: string; bootstrapUrl: string } {
   return { adminUrl, bootstrapUrl };
 }
 
-async function ensureServiceRole(
-  admin: postgres.Sql,
-  password: string,
-): Promise<void> {
+async function ensureServiceRole(admin: postgres.Sql, password: string): Promise<void> {
   const exists = await admin<{ ok: boolean }[]>`
     SELECT EXISTS (
       SELECT 1 FROM pg_roles WHERE rolname = 'bright_service'
@@ -81,9 +75,7 @@ async function ensureServiceRole(
   }
   console.log('[bootstrap] creating bright_service role (BYPASSRLS)');
   // Quote the password to be safe; use dollar-quoting to avoid escaping.
-  await admin.unsafe(
-    `CREATE ROLE bright_service BYPASSRLS LOGIN PASSWORD $pw$${password}$pw$`,
-  );
+  await admin.unsafe(`CREATE ROLE bright_service BYPASSRLS LOGIN PASSWORD $pw$${password}$pw$`);
 }
 
 async function getOrCreateUserId(
@@ -130,11 +122,7 @@ async function main(): Promise<void> {
   const service = postgres(bootstrapUrl, { max: 1, prepare: false });
   let result: BootstrapResult | undefined;
   try {
-    const userId = await getOrCreateUserId(
-      service,
-      DEV_USER_EMAIL,
-      DEV_USER_NAME,
-    );
+    const userId = await getOrCreateUserId(service, DEV_USER_EMAIL, DEV_USER_NAME);
     const { raw, prefix } = generateApiKey();
     const keyHash = await argon2Hash(raw, {
       algorithm: Algorithm.Argon2id,

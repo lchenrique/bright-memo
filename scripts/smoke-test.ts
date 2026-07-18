@@ -7,6 +7,7 @@ import { resolve } from 'node:path';
 const DEFAULTS = {
   'api-url': 'http://localhost:3001',
   'cli-path': resolve(import.meta.dirname, '..', 'apps', 'cli', 'dist', 'index.js'),
+  'api-key': process.env.BRIGHT_MEMO_API_KEY,
 };
 
 function parseFlags() {
@@ -14,6 +15,7 @@ function parseFlags() {
     options: {
       'api-url': { type: 'string', default: DEFAULTS['api-url'] },
       'cli-path': { type: 'string', default: DEFAULTS['cli-path'] },
+      'api-key': { type: 'string', default: DEFAULTS['api-key'] },
       help: { type: 'boolean', default: false },
     },
     allowPositionals: false,
@@ -24,19 +26,22 @@ function parseFlags() {
 Options:
   --api-url <url>     API base URL (default: ${DEFAULTS['api-url']})
   --cli-path <path>   CLI binary path (default: ${DEFAULTS['cli-path']})
+  --api-key <key>     Optional key for authenticated /v1/me check
   --help              Show this help`);
     process.exit(0);
   }
-  return { apiUrl: values['api-url'], cliPath: values['cli-path'] };
+  return { apiUrl: values['api-url'], cliPath: values['cli-path'], apiKey: values['api-key'] };
 }
 
-async function apiCheck(label: string, url: string, init?: RequestInit): Promise<boolean> {
+async function apiCheck(
+  label: string,
+  url: string,
+  expectedStatus: number,
+  init?: RequestInit,
+): Promise<boolean> {
   try {
     const r = await fetch(url, init);
-    const pass = init?.headers?.['authorization']
-      ? r.status === 200
-      : r.status === (init?.method === 'POST' ? 201 : 200) ||
-        (url.endsWith('/v1/me') && !init?.headers?.['authorization'] ? r.status === 401 : false);
+    const pass = r.status === expectedStatus;
     if (!pass) console.error(`FAIL ${label}: ${r.status}`);
     return pass;
   } catch (err) {
@@ -58,22 +63,23 @@ function cliCheck(
 }
 
 async function main() {
-  const { apiUrl, cliPath } = parseFlags();
+  const { apiUrl, cliPath, apiKey } = parseFlags();
   const fail: string[] = [];
 
   // API checks
-  if (!(await apiCheck('/health 200', `${apiUrl}/health`))) fail.push('/health');
-  if (!(await apiCheck('/v1/me 401 (no auth)', `${apiUrl}/v1/me`))) fail.push('/v1/me 401');
-  const key = 'test-key';
+  if (!(await apiCheck('/health 200', `${apiUrl}/health`, 200))) fail.push('/health');
+  if (!(await apiCheck('/v1/me 401 (no auth)', `${apiUrl}/v1/me`, 401))) fail.push('/v1/me 401');
   if (
-    !(await apiCheck('/v1/me 200 (with key)', `${apiUrl}/v1/me`, {
-      headers: { authorization: `Bearer ${key}` },
+    apiKey &&
+    !(await apiCheck('/v1/me 200 (with key)', `${apiUrl}/v1/me`, 200, {
+      headers: { authorization: `Bearer ${apiKey}` },
     }))
-  )
+  ) {
     fail.push('/v1/me 200');
+  }
 
   // CLI checks
-  if (!cliCheck('bm version', cliPath, ['version'], '0.1.0')) fail.push('bm version');
+  if (!cliCheck('bm version', cliPath, ['version'], '0.2.0')) fail.push('bm version');
   if (!cliCheck('bm status --help', cliPath, ['status', '--help'], /show API health/i))
     fail.push('bm status --help');
   if (

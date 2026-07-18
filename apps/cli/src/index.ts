@@ -12,7 +12,7 @@ import { installCommand } from './commands/install.js';
 
 const program = new Command();
 
-program.name('bm').description('Bright Memo CLI').version('0.1.0');
+program.name('bm').description('Bright Memo CLI').version('0.2.0');
 
 versionCommand(program);
 configCommand(program);

@@ -1,15 +1,15 @@
 ﻿# Bright Memo v2 — Dev Quickstart
 
-Guia de setup local, comandos e estado pós v0.1.0.
+Guia de setup local e validação da release v0.2.0.
 
 > Documento vivo. Para arquitetura/decisões, ver `README.md` + mensagens de commit (conventional).
 
 ## TL;DR
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile
 docker compose -f docker/docker-compose.yml up -d
-pnpm db:migrate
+pnpm db:deploy
 pnpm db:bootstrap       # gera apps/api/.dev-key
 pnpm --filter @bright-memo/api dev   # API :3001
 pnpm --filter @bright-memo/web dev   # Web :3000 (signup/login/dashboard)
@@ -31,7 +31,7 @@ bright-memo/
 │   └── postgres.conf
 ├── scripts/
 │   ├── db-bootstrap.ts         cria dev user + key
-│   ├── db-reset.ts             drop + migrate (pede confirmação)
+│   ├── db-reset.ts             drop + deploy (pede confirmação)
 │   ├── install.ts              install flow das 4 fases (CLI standalone)
 │   ├── install-reset.ts        limpa estado do install
 │   ├── smoke-test.ts           smoke do API + DB
@@ -46,30 +46,36 @@ bright-memo/
 ## Setup Detalhado
 
 ### 1. Dependências
+
 ```bash
-pnpm install
+pnpm install --frozen-lockfile
 ```
+
 Build dependencies limitadas (`esbuild`) por causa de permissoes no pnpm 11.
 
 ### 2. Banco
+
 ```bash
 pnpm db:up          # sobe Postgres 16 + pgvector na 5432
-pnpm db:migrate     # aplica 3 migrations (0000 tabelas, 0001 indices, 0002 RLS)
+pnpm db:deploy      # vector + roles + 3 migrations + validação de RLS
 pnpm db:bootstrap   # cria dev user (dev@brightmemo.local) + API key em apps/api/.dev-key
 ```
 
 Reset (apaga tudo e recria):
+
 ```bash
-pnpm db:reset       # confirma, dropa schema, roda migrations, pede bootstrap
+pnpm db:reset       # confirma, recria DB, roda deploy, pede bootstrap
 ```
 
 ### 3. API
+
 ```bash
 pnpm --filter @bright-memo/api dev
 # Listening em http://localhost:3001
 ```
 
 Crie `.env` em `apps/api/`:
+
 ```bash
 cp apps/api/.env.example apps/api/.env
 # editar BOOTSTRAP_TOKEN_SECRET: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
@@ -78,34 +84,40 @@ cp apps/api/.env.example apps/api/.env
 ```
 
 ### 4. Web
+
 ```bash
 pnpm --filter @bright-memo/web dev
 # http://localhost:3000
 ```
+
 Páginas: `/login`, `/signup`, `/dashboard`, `/dashboard/projects`, `/dashboard/memories`, `/dashboard/search`, `/dashboard/settings`.
 
 ### 5. CLI (instalável standalone)
+
 ```bash
 pnpm --filter @bright-memo/cli build
 node apps/cli/dist/index.js --help
 ```
+
 Ou rodar via Node sem build:
+
 ```bash
 tsx apps/cli/src/index.ts --help
 ```
 
 #### Comandos CLI
-| Comando | O que faz |
-|---|---|
-| `config` | ver/editar config local |
-| `init` | criar/identificar projeto no Bright Memo |
-| `install` | instalar skill + CLI nas IDEs detectadas |
-| `list` | listar memórias do projeto atual |
-| `save <texto>` | salvar memória nova (com embedding server-side) |
-| `search <query>` | busca semântica |
-| `status` | diagnóstico (key, user, projeto, IDEs) |
-| `sync` | sincronizar contexto |
-| `version` | versão do CLI |
+
+| Comando          | O que faz                                       |
+| ---------------- | ----------------------------------------------- |
+| `config`         | ver/editar config local                         |
+| `init`           | criar/identificar projeto no Bright Memo        |
+| `install`        | instalar skill + CLI nas IDEs detectadas        |
+| `list`           | listar memórias do projeto atual                |
+| `save <texto>`   | salvar memória nova (com embedding server-side) |
+| `search <query>` | busca semântica                                 |
+| `status`         | diagnóstico (key, user, projeto, IDEs)          |
+| `sync`           | sincronizar contexto                            |
+| `version`        | versão do CLI                                   |
 
 ## Verificação Rápida
 
@@ -125,7 +137,7 @@ curl -X POST \
   http://localhost:3001/v1/auth/keys
 
 # Smoke test (roda via script)
-pnpm --filter @bright-memo/api smoke   # ou: tsx scripts/smoke-test.ts
+pnpm exec tsx scripts/smoke-test.ts
 
 # E2E gate (install → save → search → context)
 tsx scripts/e2e-gate.ts
@@ -136,12 +148,12 @@ tsx scripts/e2e-gate.ts
 ```bash
 # DB
 pnpm db:up / db:down / db:logs / db:psql
-pnpm db:migrate / db:reset / db:bootstrap
+pnpm db:deploy / db:reset / db:bootstrap
 
 # Quality
-pnpm turbo lint
-pnpm turbo build
-pnpm turbo test
+pnpm lint:all
+pnpm test:all
+pnpm build:all
 pnpm format   # prettier write em tudo
 
 # Por app
@@ -154,9 +166,12 @@ pnpm --filter @bright-memo/shared <script>
 ## Variáveis de Ambiente
 
 ### `apps/api/.env`
+
 ```bash
 PORT=3001
-DATABASE_URL=postgres://bright:changeme@localhost:5432/bright_memo
+DATABASE_URL=postgres://bright:<admin-password>@localhost:5432/bright_memo
+APP_DATABASE_URL=postgres://bright_app:<app-password>@localhost:5432/bright_memo
+SERVICE_DATABASE_URL=postgres://bright_service:<service-password>@localhost:5432/bright_memo
 NODE_ENV=development
 LOG_LEVEL=info
 APP_URL=http://localhost:3001
@@ -165,6 +180,7 @@ OPENAI_API_KEY=sk-...    # embeddings server-side
 ```
 
 ### `apps/web/.env.local`
+
 ```bash
 NEXT_PUBLIC_API_URL=http://localhost:3001
 API_INTERNAL_URL=http://localhost:3001
@@ -172,6 +188,7 @@ COOKIE_SECRET=<random>
 ```
 
 ### `apps/cli/.env` (opcional, env globals funcionam)
+
 ```bash
 BRIGHT_MEMO_API_KEY=bm_xxx
 BRIGHT_MEMO_API_URL=http://localhost:3001
@@ -180,55 +197,56 @@ BRIGHT_MEMO_API_URL=http://localhost:3001
 ## Branch e Push
 
 ```bash
-# Branch atual: feat/v2-rebuild
+# Branch atual: release/v0.2.0
 # Remote: github.com/lchenrique/bright-memo
-# Tag atual: v0.1.0
+# Release alvo: v0.2.0
 
 git status
 git log --oneline -20
-git push origin feat/v2-rebuild
+git push origin release/v0.2.0
 
 # Em outro PC:
 git clone https://github.com/lchenrique/bright-memo.git
-git checkout feat/v2-rebuild
-pnpm install && pnpm db:up && pnpm db:migrate && pnpm db:bootstrap
+git checkout release/v0.2.0
+pnpm install --frozen-lockfile && pnpm db:up && pnpm db:deploy && pnpm db:bootstrap
 ```
 
 ## Deploy (Coolify)
 
-`apps/api/Dockerfile` existe pra deploy no Coolify (ou qualquer Docker host).
+Use `docs/coolify-deploy.md`. Produção roda `node dist/db/deploy.js` antes da API e nunca roda `db:bootstrap`.
 
 ```bash
-docker build -f apps/api/Dockerfile -t bright-memo-api .
+docker build -f apps/api/Dockerfile -t bright-memo-api:v0.2.0 .
 docker run -p 3001:3001 --env-file apps/api/.env bright-memo-api
 ```
 
 Web tem `next.config.ts` standalone. Build:
+
 ```bash
 pnpm --filter @bright-memo/web build
 ```
 
-## Estado Atual (v0.1.0)
+## Estado Atual (release v0.2.0)
 
 Tag em commit `713504a feat(web): t-047..t-051 next.js app...`.
 
-### Pronto (commitado em `feat/v2-rebuild`)
+### Pronto para revisão em `release/v0.2.0`
 
-| Task | Descrição |
-|------|-----------|
-| T-001 → T-006 | Monorepo + Husky + shared package (tipos/Zod/constants) |
-| T-007 → T-012 | DB infra (Docker + Drizzle + 3 migrations + RLS + bootstrap) |
-| T-013 → T-018 | API auth (Fastify + plugins auth/db-context + /auth/keys + /me) |
-| T-019 | API projects CRUD (com gate pré-T-019) |
-| T-020 | API memories CRUD |
-| T-021 → T-024 | API search + OpenAI embeddings server-side |
+| Task          | Descrição                                                                      |
+| ------------- | ------------------------------------------------------------------------------ |
+| T-001 → T-006 | Monorepo + Husky + shared package (tipos/Zod/constants)                        |
+| T-007 → T-012 | DB infra (Docker + Drizzle + 3 migrations + RLS + bootstrap)                   |
+| T-013 → T-018 | API auth (Fastify + plugins auth/db-context + /auth/keys + /me)                |
+| T-019         | API projects CRUD (com gate pré-T-019)                                         |
+| T-020         | API memories CRUD                                                              |
+| T-021 → T-024 | API search + OpenAI embeddings server-side                                     |
 | T-025 → T-035 | CLI binário (init, save, list, search, status, sync, install, config, version) |
-| T-036 → T-042 | Install flow CLI (4 fases: key, IDE detect, project, marker) |
-| T-043 | SKILL.md (root) |
-| T-044 → T-046 | Smoke test + E2E gate + IDE checklist + CI workflows |
-| T-047 → T-051 | Web Next.js (login, signup, dashboard, projects, memories, search, settings) |
-| + | Dockerfile Coolify |
-| + | .github/workflows (ci.yml + e2e.yml) |
+| T-036 → T-042 | Install flow CLI (4 fases: key, IDE detect, project, marker)                   |
+| T-043         | SKILL.md (root)                                                                |
+| T-044 → T-046 | Smoke test + E2E gate + IDE checklist + CI workflows                           |
+| T-047 → T-051 | Web Next.js (login, signup, dashboard, projects, memories, search, settings)   |
+| +             | Dockerfile Coolify                                                             |
+| +             | .github/workflows (ci.yml + e2e.yml)                                           |
 
 ### Pendente / Melhorias futuras
 

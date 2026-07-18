@@ -7,7 +7,11 @@ Monorepo com API Fastify, CLI Bun, web Next.js e pacote compartilhado de tipos/s
 ## Desenvolvimento
 
 ```bash
-pnpm install
-pnpm build
-pnpm lint
+corepack enable
+pnpm install --frozen-lockfile
+pnpm lint:all
+pnpm test:all
+pnpm build:all
 ```
+
+Deploy da API e banco: `docs/coolify-deploy.md`.

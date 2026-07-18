@@ -3,17 +3,24 @@ name: E2E
 on:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   e2e:
     runs-on: ubuntu-latest
+    env:
+      DB_PASS: ci-local-only-password
+      DATABASE_URL: postgres://bright:ci-local-only-password@localhost:5432/bright_memo
+      APP_DATABASE_URL: postgres://bright_app:ci-app-only-password@localhost:5432/bright_memo
+      SERVICE_DATABASE_URL: postgres://bright_service:ci-service-only-password@localhost:5432/bright_memo
+      BOOTSTRAP_TOKEN_SECRET: ci-only-bootstrap-secret-32-characters
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 11
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: pnpm
       - name: Cache turbo
         uses: actions/cache@v4
@@ -23,12 +30,15 @@ jobs:
           restore-keys: |
             turbo-e2e-${{ runner.os }}-
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - name: Docker compose up
+      - run: pnpm lint:all
+      - run: pnpm test:all
+      - run: pnpm build:all
+      - name: Start PostgreSQL
         run: docker compose -f docker/docker-compose.yml up -d --wait
-      - run: pnpm db:migrate
-      - run: pnpm db:bootstrap
-      - run: pnpm exec tsx scripts/e2e-gate.ts
-      - name: Docker compose down
+      - name: Deploy database
+        run: pnpm db:deploy
+      - name: Run E2E gate
+        run: pnpm exec tsx scripts/e2e-gate.ts
+      - name: Cleanup
         if: always()
-        run: docker compose -f docker/docker-compose.yml down
+        run: docker compose -f docker/docker-compose.yml down -v
