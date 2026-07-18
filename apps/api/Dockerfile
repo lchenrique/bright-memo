@@ -1,21 +1,28 @@
-﻿# Stage 1: Build
-FROM node:22-alpine AS builder
+﻿# Stage 1: Dependencies
+FROM node:22-alpine AS deps
+RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json ./apps/api/package.json
 COPY packages/shared/package.json ./packages/shared/package.json
-RUN npm ci --include=dev
-COPY . .
-RUN npm run build --workspace=@bright-memo/shared
-RUN npm run build --workspace=@bright-memo/api
+RUN pnpm install --frozen-lockfile
 
-# Stage 2: Production (keep all deps to avoid missing transitive)
+# Stage 2: Build
+FROM node:22-alpine AS builder
+RUN corepack enable && corepack prepare pnpm@latest --activate
+WORKDIR /app
+COPY --from=deps /app ./
+COPY . .
+RUN pnpm --filter @bright-memo/shared build
+RUN pnpm --filter @bright-memo/api build
+
+# Stage 3: Production (keep all deps to avoid missing transitive)
 FROM node:22-alpine
+RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3001
 
-# Copy entire builder output - simpler and avoids missing deps
 COPY --from=builder /app .
 
 WORKDIR /app/apps/api
