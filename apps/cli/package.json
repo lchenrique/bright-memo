@@ -2,7 +2,6 @@
   "name": "@bright-memo/cli",
   "version": "0.2.1",
   "license": "MIT",
-  "private": true,
   "type": "module",
   "bin": {
     "bm": "./dist/index.js"
