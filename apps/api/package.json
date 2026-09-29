@@ -1,6 +1,7 @@
 {
   "name": "@bright-memo/api",
   "version": "0.2.1",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "main": "./dist/server.js",

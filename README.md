@@ -54,3 +54,7 @@ node apps/cli/dist/index.js skill install --client opencode --json
 - Setup e validacao: [`docs/dev-quickstart.md`](docs/dev-quickstart.md)
 - Coolify: [`docs/coolify-deploy.md`](docs/coolify-deploy.md)
 - Skill operacional: [`SKILL.md`](SKILL.md)
+
+## Licenca
+
+MIT. Veja [`LICENSE`](LICENSE).

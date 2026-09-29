@@ -2,6 +2,7 @@
   "name": "bright-memo-v2",
   "private": true,
   "version": "0.2.1",
+  "license": "MIT",
   "description": "Bright Memo v2 monorepo",
   "packageManager": "pnpm@11.14.0",
   "engines": {
